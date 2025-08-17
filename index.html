@@ -1,69 +1,69 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="ko">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>영단어 암기</title>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>단어장 PWA</title>
 
-<!-- PWA 설정 -->
-<link rel="manifest" href="manifest.json">
-<meta name="theme-color" content="#1976d2">
+  <!-- PWA -->
+  <link rel="manifest" href="./manifest.webmanifest" />
+  <meta name="theme-color" content="#111111" />
 
-<style>
-body { font-family: Arial; margin:0; }
-.tab-content { padding: 20px; }
-.tab-bar {
-  position: fixed; bottom: 0; width: 100%; height: 60px;
-  background: #f5f5f5; display: flex; justify-content: space-around;
-  align-items: center; border-top: 1px solid #ccc;
-}
-.tab-bar button { flex: 1; background: none; border: none; font-size: 16px; }
-.tab-bar button.active { color: #1976d2; font-weight: bold; }
-.group-card { border:1px solid #ccc; margin:10px 0; padding:10px; cursor:pointer; }
-</style>
+  <!-- 간단 스타일 -->
+  <link rel="stylesheet" href="./styles.css" />
 
-<script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-app.js"></script>
-<script src="https://www.gstatic.com/firebasejs/8.10.0/firebase-database.js"></script>
-<script src="main.js" defer></script>
+  <!-- Firebase (CDN, 모듈 버전) -->
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-app.js";
+    import { getAuth, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-auth.js";
+    import { getFirestore } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore.js";
+    import { firebaseConfig } from "./firebase-init.js";
+
+    // 전역 초기화 (app.js에서 재사용)
+    window.firebaseApp = initializeApp(firebaseConfig);
+    window.firebaseAuth = getAuth(window.firebaseApp);
+    window.firebaseDB = getFirestore(window.firebaseApp);
+
+    // PWA 서비스워커 등록
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker.register("./service-worker.js");
+    }
+
+    // 앱 시작
+    import("./app.js");
+  </script>
 </head>
 <body>
+  <main class="container">
+    <h1>단어장</h1>
 
-<!-- 로그인 화면 -->
-<div id="loginScreen" class="tab-content">
-  <h2>닉네임 로그인</h2>
-  <input type="text" id="nicknameInput" placeholder="닉네임 입력">
-  <button onclick="login()">로그인</button>
-</div>
+    <!-- 인증 UI -->
+    <section id="auth-section">
+      <input id="email" placeholder="이메일" />
+      <input id="password" type="password" placeholder="비밀번호" />
+      <div class="row">
+        <button id="signup-btn">회원가입</button>
+        <button id="login-btn">로그인</button>
+      </div>
+    </section>
 
-<!-- 메인 화면 -->
-<div id="mainScreen" style="display:none;">
-  <!-- 내 단어장 -->
-  <div id="myWords" class="tab-content">
-    <h2>내 단어장</h2>
-    <p>단어장 목록 (임시)</p>
-    <ul id="myWordList"></ul>
-  </div>
+    <!-- 로그인 후 UI -->
+    <section id="app-section" class="hidden">
+      <div class="row space">
+        <div>👤 <span id="user-email"></span></div>
+        <button id="logout-btn">로그아웃</button>
+      </div>
 
-  <!-- 그룹 -->
-  <div id="groups" class="tab-content" style="display:none;">
-    <h2>그룹</h2>
-    <button onclick="createGroup()">그룹 생성</button>
-    <div id="groupList"></div>
-  </div>
+      <hr />
 
-  <!-- 하단 탭 -->
-  <div class="tab-bar">
-    <button id="btn-myWords" onclick="switchTab('myWords')" class="active">📚 내 단어장</button>
-    <button id="btn-groups" onclick="switchTab('groups')">👥 그룹</button>
-  </div>
-</div>
+      <h2>내 단어장</h2>
+      <div class="row">
+        <input id="book-name" placeholder="단어장 이름" />
+        <button id="create-book">+ 만들기</button>
+      </div>
 
-<script>
-if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.register('service-worker.js')
-    .then(() => console.log("서비스 워커 등록 완료"));
-}
-</script>
-
+      <ul id="book-list"></ul>
+    </section>
+  </main>
 </body>
 </html>
