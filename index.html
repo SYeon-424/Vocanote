@@ -23,6 +23,7 @@
     ul { padding-left: 18px; }
     .tab { padding:8px 12px; border:1px solid #8884; border-radius:8px; }
     .tab.active { font-weight:700; text-decoration: underline; }
+    #quiz-choices button.selected { outline: 2px solid #888; }
   </style>
 
   <!-- Firebase/CDN 초기화 + 앱 로드 -->
@@ -33,17 +34,17 @@
     import { firebaseConfig } from "./firebase-init.js";
 
     // Firebase 전역 초기화 (app.js에서 재사용)
-    window.firebaseApp = initializeApp(firebaseConfig);
+    window.firebaseApp  = initializeApp(firebaseConfig);
     window.firebaseAuth = getAuth(window.firebaseApp);
-    window.firebaseDB = getFirestore(window.firebaseApp);
+    window.firebaseDB   = getFirestore(window.firebaseApp);
 
     // PWA 서비스워커 등록
     if ("serviceWorker" in navigator) {
       navigator.serviceWorker.register("./service-worker.js");
     }
 
-    // 앱 시작
-    import("./app.js");
+    // 앱 시작 (캐시 무력화 쿼리로 최신 로드)
+    import("./app.js?v=7");
   </script>
 </head>
 <body>
@@ -101,14 +102,14 @@
         <ul id="word-list"></ul>
       </div>
 
-      <!-- 테스트 탭 -->
+      <!-- 테스트 탭 (3지선다 2종 + 서술형, 제출/패스, 자동넘김) -->
       <div id="test-pane" class="hidden">
         <div class="row" style="gap:8px; flex-wrap:wrap;">
           <label>모드:
             <select id="test-mode">
-              <option value="t2m">단어 → 뜻</option>
-              <option value="m2t">뜻 → 단어</option>
-              <option value="mcq">객관식(4지선다)</option>
+              <option value="mcq_t2m">객관식(단어 → 뜻)</option>
+              <option value="mcq_m2t">객관식(뜻 → 단어)</option>
+              <option value="free_m2t">서술형(뜻 → 단어, 스펠링)</option>
             </select>
           </label>
           <button id="start-test">테스트 시작</button>
@@ -118,20 +119,20 @@
         <div id="quiz-area" class="hidden" style="margin-top:12px;">
           <div id="quiz-q" style="font-size:18px; margin-bottom:8px;"></div>
 
-          <!-- 주관식 입력 -->
+          <!-- 서술형 입력 -->
           <div id="quiz-free">
-            <input id="quiz-answer" placeholder="답 입력" />
-            <button id="submit-answer">제출</button>
+            <input id="quiz-answer" placeholder="답 입력(스펠링)" />
           </div>
 
-          <!-- 객관식 버튼 -->
+          <!-- 객관식 보기 (3지선다) -->
           <div id="quiz-choices" class="hidden" style="display:flex; gap:8px; flex-wrap:wrap; margin-top:8px;"></div>
 
           <div id="quiz-feedback" style="margin-top:8px;"></div>
 
           <div class="row" style="margin-top:12px;">
-            <button id="next-question">다음</button>
-            <button id="end-test">종료</button>
+            <button id="submit-answer">제출</button>
+            <button id="pass-question">패스</button>
+            <button id="end-test" style="margin-left:auto;">종료</button>
           </div>
         </div>
 
