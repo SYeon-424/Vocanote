@@ -10,7 +10,7 @@ import {
   doc, deleteDoc, updateDoc
 } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore.js";
 
-console.log("app.js loaded v7");
+console.log("app.js loaded v8");
 
 const auth = window.firebaseAuth;
 const db   = window.firebaseDB;
@@ -56,7 +56,7 @@ const quizArea      = document.getElementById("quiz-area");
 const quizQ         = document.getElementById("quiz-q");
 const quizFreeBox   = document.getElementById("quiz-free");
 const quizAnswerEl  = document.getElementById("quiz-answer");
-const submitAnswerBtn = document.getElementById("submit-answer");
+const submitAnswerBtn = document.getElementById("submit-answer"); // 서술형 전용
 const passBtn       = document.getElementById("pass-question");
 const quizChoices   = document.getElementById("quiz-choices");
 const quizFeedback  = document.getElementById("quiz-feedback");
@@ -77,7 +77,6 @@ let quizIdx = 0;
 let score = 0;
 let answered = false;
 let awaitingAdvance = false;
-let selectedChoiceId = null; // MCQ에서 선택한 보기 id
 let advanceTimer = null;
 
 // 유틸
@@ -92,7 +91,6 @@ const shuffle = (arr) => {
 
 const show = (el) => el.classList.remove("hidden");
 const hide = (el) => el.classList.add("hidden");
-
 const setDisabled = (el, flag) => {
   if (!el) return;
   el.disabled = flag;
@@ -169,9 +167,7 @@ function openBook(book) {
   appSection.classList.add("hidden");
   wordsSection.classList.remove("hidden");
 
-  // 기본 탭은 '수정'
-  activateTab("manage");
-
+  activateTab("manage"); // 기본 탭은 '수정'
   startWordsLive();
   resetTestUI(true);
 }
@@ -280,7 +276,6 @@ startTestBtn.onclick = () => {
   score = 0;
   answered = false;
   awaitingAdvance = false;
-  selectedChoiceId = null;
   quizOrder = shuffle(wordsCache.map((_, i) => i));
   quizIdx = 0;
 
@@ -291,17 +286,11 @@ startTestBtn.onclick = () => {
   updateStatus();
 };
 
-// 제출
+// 서술형 제출
 submitAnswerBtn.onclick = () => {
   if (!testRunning || answered || awaitingAdvance) return;
-
-  if (testMode === "free_m2t") {
-    handleFreeSubmit();
-  } else {
-    // MCQ는 선택이 필요
-    if (!selectedChoiceId) return alert("보기를 선택해줘!");
-    handleMcqSubmit();
-  }
+  if (testMode !== "free_m2t") return; // 서술형 전용
+  handleFreeSubmit();
 };
 
 // 패스 (무조건 오답 처리하고 정답 표시 → 3초 후 자동 다음)
@@ -323,7 +312,6 @@ function resetTestUI(hideAll=false) {
   quizIdx = 0;
   answered = false;
   awaitingAdvance = false;
-  selectedChoiceId = null;
   if (advanceTimer) { clearTimeout(advanceTimer); advanceTimer = null; }
 
   quizQ.textContent = "";
@@ -344,35 +332,37 @@ function updateStatus() {
 function renderQuestion() {
   answered = false;
   awaitingAdvance = false;
-  selectedChoiceId = null;
   quizFeedback.textContent = "";
   quizChoices.innerHTML = "";
   quizAnswerEl.value = "";
 
   // 입력/버튼 활성화
-  setDisabled(submitAnswerBtn, false);
   setDisabled(passBtn, false);
   setDisabled(quizAnswerEl, false);
 
   const w = wordsCache[quizOrder[quizIdx]];
 
   if (testMode === "free_m2t") {
-    // 뜻 -> 단어(스펠링)
+    // 서술형: 뜻 -> 단어(스펠링)
     quizQ.textContent = `단어를 쓰세요 (뜻): ${w.meaning}`;
     show(quizFreeBox); hide(quizChoices);
+    show(submitAnswerBtn);       // 서술형은 제출 버튼 사용
   } else if (testMode === "mcq_t2m") {
-    // 단어 -> 뜻 (보기: 뜻 3개)
+    // 객관식: 단어 -> 뜻 (3지선다)
     quizQ.textContent = `정답을 고르세요 (단어 → 뜻): ${w.term}`;
     hide(quizFreeBox); show(quizChoices);
-    renderChoices(w, /*showField*/"meaning");
+    hide(submitAnswerBtn);       // MCQ는 제출 버튼 숨김
+    renderChoices(w, "meaning");
   } else {
-    // mcq_m2t: 뜻 -> 단어 (보기: 단어 3개)
+    // mcq_m2t: 뜻 -> 단어 (3지선다)
     quizQ.textContent = `정답을 고르세요 (뜻 → 단어): ${w.meaning}`;
     hide(quizFreeBox); show(quizChoices);
-    renderChoices(w, /*showField*/"term");
+    hide(submitAnswerBtn);       // MCQ는 제출 버튼 숨김
+    renderChoices(w, "term");
   }
 }
 
+// 서술형 채점
 function handleFreeSubmit() {
   const w = wordsCache[quizOrder[quizIdx]];
   const ans = normalize(quizAnswerEl.value);
@@ -384,44 +374,32 @@ function handleFreeSubmit() {
   scheduleNext();
 }
 
-function handleMcqSubmit() {
-  const w = wordsCache[quizOrder[quizIdx]];
-  const ok = selectedChoiceId === w.id;
-  answered = true;
-  if (ok) score++;
-  showFeedback(ok, correctTextForMode(w));
-  scheduleNext();
-}
-
-// 보기 생성 (정답 + 오답 2개 = 3지선다)
+// 객관식 보기 생성 (클릭=즉시 제출)
 function renderChoices(correct, showField) {
-  // 후보 풀에서 정답 제외 후 2개 선택
+  // 정답 제외 풀에서 2개 뽑아 3지선다
   const pool = shuffle(wordsCache.filter(x => x.id !== correct.id)).slice(0, 2);
   const options = shuffle([correct, ...pool]);
 
   options.forEach((opt) => {
     const b = document.createElement("button");
     b.textContent = (showField === "term" ? opt.term : opt.meaning);
-    b.style.outline = "none";
 
     b.onclick = () => {
       if (answered || awaitingAdvance) return;
-      // 선택 토글 (단일 선택)
-      selectedChoiceId = opt.id;
-      // 선택 표시
-      [...quizChoices.children].forEach(btn => btn.classList.remove("selected"));
-      b.classList.add("selected");
+      answered = true;
+      const ok = opt.id === correct.id;
+      if (ok) score++;
+      showFeedback(ok, correctTextForMode(correct));
+      scheduleNext();
     };
 
     quizChoices.appendChild(b);
   });
 }
 
-// 피드백 표시
+// 피드백 표시 + 입력/버튼 잠금
 function showFeedback(ok, correctText) {
   quizFeedback.textContent = ok ? "✅ 정답!" : `❌ 오답. 정답: ${correctText}`;
-  // 입력/버튼 잠금
-  setDisabled(submitAnswerBtn, true);
   setDisabled(passBtn, true);
   setDisabled(quizAnswerEl, true);
   // 보기 클릭 막기
