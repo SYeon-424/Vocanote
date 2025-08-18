@@ -665,27 +665,58 @@ function startMyGroupsLive(uid) {
   unsubMyGroups = onSnapshot(qMy, (snap) => {
     myGroupListEl.innerHTML = "";
     snap.forEach(d => {
-      const g = { id: d.id, ...d.data() }; // {groupId, name, code, ...}
+      const g = { id: d.id, ...d.data() }; // {groupId, name, code, owner, ...}
+      const gid = g.groupId || g.id;
+
       const li = document.createElement("li");
 
+      // 왼쪽: 그룹 이름(누르면 상세로 이동)
       const label = document.createElement("span");
       label.textContent = g.name;
       label.style.cursor = "pointer";
-      label.onclick = () => openGroup({ id: g.groupId || g.id, name: g.name, code: g.code });
+      label.onclick = () => openGroup({ id: gid, name: g.name, code: g.code });
 
+      // 오른쪽: 버튼들
       const btnWrap = document.createElement("div");
       btnWrap.className = "btn-wrap";
-      const openBtn = document.createElement("button");
-      openBtn.textContent = "열기";
-      openBtn.onclick = () => openGroup({ id: g.groupId || g.id, name: g.name, code: g.code });
 
-      btnWrap.appendChild(openBtn);
+      // 소유자만: 이름수정, 삭제
+      if (g.owner) {
+        const renameBtn = document.createElement("button");
+        renameBtn.textContent = "이름수정";
+        renameBtn.onclick = async (e) => {
+          e.stopPropagation();
+          const newName = prompt("새 그룹 이름", g.name);
+          if (newName === null) return;
+          const trimmed = newName.trim();
+          if (!trimmed) return alert("이름을 입력해줘!");
+          try { await renameGroup(gid, trimmed); }
+          catch (err) { alert("이름 변경 중 오류: " + (err?.message || err)); }
+        };
+
+        const delBtn = document.createElement("button");
+        delBtn.textContent = "삭제";
+        delBtn.onclick = async (e) => {
+          e.stopPropagation();
+          if (!confirm(`그룹 "${g.name}"을(를) 삭제할까요?\n(모든 멤버십이 해제되고 그룹이 제거됩니다)`)) return;
+          try { await deleteGroup(gid, uid); }
+          catch (err) { alert("삭제 중 오류: " + (err?.message || err)); }
+        };
+
+        btnWrap.appendChild(renameBtn);
+        btnWrap.appendChild(delBtn);
+      }
+
       li.appendChild(label);
       li.appendChild(btnWrap);
+      // li 전체 클릭도 상세로 이동 (버튼 클릭은 제외)
+      li.onclick = () => openGroup({ id: gid, name: g.name, code: g.code });
+
       myGroupListEl.appendChild(li);
     });
   });
 }
+
 
 // 그룹 만들기
 createGroupBtn.onclick = async () => {
@@ -757,7 +788,12 @@ function openGroup(g) {
   currentGroup = g; // {id, name, code}
   currentGroupTitleEl.textContent = `그룹 – ${g.name}`;
   groupInviteCodeEl.textContent = g.code || "";
+
+  // 단어장 화면/홈 숨기고 그룹 상세만 표시 (단어장과 동일 UX)
+  hide(appSection);
+  hide(wordsSection);
   show(groupSection);
+
   startMembersLive(g.id);
 }
 
@@ -778,8 +814,10 @@ function startMembersLive(gid) {
 backToGroupsBtn.onclick = () => {
   if (unsubGroupMembers) unsubGroupMembers();
   currentGroup = null;
-  hide(groupSection);
   groupMembersEl.innerHTML = "";
+
+  hide(groupSection);
+  show(appSection); // 홈(단어장/그룹 목록)로 복귀
 };
 
 leaveGroupBtn.onclick = async () => {
@@ -794,3 +832,38 @@ leaveGroupBtn.onclick = async () => {
   backToGroupsBtn.onclick();
   alert("탈퇴했어!");
 };
+
+// 그룹 이름 변경 (소유자만 가능)
+async function renameGroup(groupId, newName) {
+  const groupRef = doc(db, "groups", groupId);
+  await updateDoc(groupRef, { name: newName });
+
+  // 내 groups 서브컬렉션에도 이름 반영 (소유자/멤버 전원)
+  const membersSnap = await getDocs(collection(db, "groups", groupId, "members"));
+  const batch = writeBatch(db);
+  membersSnap.forEach(m => {
+    const uid = m.id;
+    const myRef = doc(db, "users", uid, "groups", groupId);
+    batch.update(myRef, { name: newName });
+  });
+  await batch.commit();
+}
+
+// 그룹 삭제 (소유자만 가능): 모든 멤버십 정리 후 그룹 문서 삭제
+async function deleteGroup(groupId, ownerUid) {
+  // 멤버 목록 조회
+  const memSnap = await getDocs(collection(db, "groups", groupId, "members"));
+  const batch = writeBatch(db);
+
+  // 각 멤버의 users/{uid}/groups/{groupId} 삭제 + 그룹의 members/{uid} 삭제
+  memSnap.forEach(m => {
+    const uid = m.id;
+    batch.delete(doc(db, "users", uid, "groups", groupId));
+    batch.delete(doc(db, "groups", groupId, "members", uid));
+  });
+
+  await batch.commit();
+
+  // 마지막으로 그룹 문서 삭제
+  await deleteDoc(doc(db, "groups", groupId));
+}
