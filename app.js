@@ -579,9 +579,9 @@ function finishTest() {
   const items = testHistory.map((h, idx) => {
     const okColor = h.correct ? "var(--ok)" : "var(--bad)";
     const modeLabel =
-      h.mode === "mcq_t2m" ? "객관식 단→뜻............." :
-      h.mode === "mcq_m2t" ? "객관식 뜻→단" :
-      "서술형 뜻→단";
+      h.mode === "mcq_t2m" ? "" :
+      h.mode === "mcq_m2t" ? "" :
+      "";
     const line1 = `<div><b>${idx+1}.</b> [${modeLabel}] <code>${escapeHtml(h.term)}</code> — <em>${escapeHtml(h.meaning)}</em></div>`;
     // 서술형은 사용자가 입력한 답 표기, MCQ는 사용자가 고른 보기(또는 패스/시간초과)
     const userAns = h.userAnswer ? ` / 내가 쓴 답: "${escapeHtml(h.userAnswer)}"` : "";
