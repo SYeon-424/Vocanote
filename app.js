@@ -8,7 +8,8 @@ import {
 
 import {
   collection, addDoc, onSnapshot, query, orderBy,
-  doc, deleteDoc, updateDoc, setDoc, getDoc
+  doc, deleteDoc, updateDoc, setDoc, getDoc,
+  getDocs, writeBatch
 } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore.js";
 
 console.log("app.js loaded v12");
