@@ -214,14 +214,14 @@ signupBtn.onclick = async () => {
   const nickname = (nicknameEl?.value || "").trim();
   const email = (emailEl.value || "").trim();
   const pw = pwEl.value;
-  if (!nickname) return alert("닉네임을 입력해줘!");
-  if (!email) return alert("이메일을 입력해줘!");
-  if (!pw) return alert("비밀번호를 입력해줘!");
+  if (!nickname) return alert("닉네임을 입력해주세요.");
+  if (!email) return alert("이메일을 입력해주세요.");
+  if (!pw) return alert("비밀번호를 입력해주세요.");
   try {
     const cred = await createUserWithEmailAndPassword(auth, email, pw);
     await updateProfile(cred.user, { displayName: nickname });
     await setDoc(doc(db, "users", cred.user.uid), { nickname, email, createdAt: Date.now() });
-    alert("회원가입 완료!");
+    alert("회원가입 완료");
   } catch (e) { alert(e.message); }
 };
 loginBtn.onclick = async () => { try { await signInWithEmailAndPassword(auth, emailEl.value, pwEl.value); } catch (e) { alert(e.message); } };
@@ -231,8 +231,8 @@ logoutBtn.onclick = async () => { await signOut(auth); };
 createBookBtn.onclick = async () => {
   const name = bookNameEl.value.trim();
   const user = auth.currentUser;
-  if (!user) return alert("로그인 먼저!");
-  if (!name) return alert("단어장 이름을 입력해줘!");
+  if (!user) return alert("로그인을 해 주세요.");
+  if (!name) return alert("단어장 이름을 입력해주세요.");
   await addDoc(collection(db, "users", user.uid, "vocabBooks"), { name, createdAt: Date.now() });
   bookNameEl.value = "";
 };
@@ -243,7 +243,7 @@ function startBooksLive(uid) {
   unsubBooks = onSnapshot(qBooks, async (snap) => {
     bookListEl.innerHTML = "";
     myBooksCache = [];
-    importSourceSel.innerHTML = `<option value="">내 단어장을 선택하세요</option>`;
+    importSourceSel.innerHTML = `<option value=""> 내 단어장을 선택하세요 </option>`;
 
     snap.forEach((d) => {
       const data = d.data();
@@ -258,13 +258,13 @@ function startBooksLive(uid) {
       label.onclick = () => openBook({ id: d.id, name: data.name });
 
       const renameBtn = document.createElement("button");
-      renameBtn.textContent = "이름수정";
+      renameBtn.textContent = "Rename";
       renameBtn.onclick = async (e) => {
         e.stopPropagation();
         const newName = prompt("새 단어장 이름", data.name);
         if (newName === null) return;
         const trimmed = newName.trim();
-        if (!trimmed) return alert("이름을 입력해줘!");
+        if (!trimmed) return alert("이름을 입력해주세요.");
         await updateDoc(doc(db, "users", uid, "vocabBooks", d.id), { name: trimmed });
       };
 
@@ -272,7 +272,7 @@ function startBooksLive(uid) {
       delBtn.textContent = "삭제";
       delBtn.onclick = async (e) => {
         e.stopPropagation();
-        if (!confirm(`단어장 "${data.name}"을(를) 삭제할까요?\n(안의 단어들도 함께 삭제됩니다)`)) return;
+        if (!confirm(`단어장 "${data.name}"을(를) 삭제할까요?\n (안의 단어들도 함께 삭제됩니다)`)) return;
         const wSnap = await getDocs(collection(db, "users", uid, "vocabBooks", d.id, "words"));
         const batch = writeBatch(db);
         wSnap.forEach(ws => batch.delete(doc(db, "users", uid, "vocabBooks", d.id, "words", ws.id)));
@@ -303,7 +303,7 @@ function startBooksLive(uid) {
 
 function openBook(book) {
   currentBook = book;
-  currentBookTitleEl.textContent = `단어장 – ${book.name}`;
+  currentBookTitleEl.textContent = `${book.name}`;
   hide(appSection); show(wordsSection); hide(groupSection); hide(gWordsSection);
   activateTab("manage");
   startWordsLive();
@@ -360,11 +360,11 @@ function startWordsLive() {
 
 addWordBtn.onclick = async () => {
   const user = auth.currentUser;
-  if (!user) return alert("로그인 먼저!");
-  if (!currentBook) return alert("단어장을 먼저 선택해줘!");
+  if (!user) return alert("로그인을 해 주세요.");
+  if (!currentBook) return alert("단어장을 선택해주세요.");
   const term = wordTermEl.value.trim();
   const meaning = wordMeaningEl.value.trim();
-  if (!term || !meaning) return alert("단어와 뜻을 입력해줘!");
+  if (!term || !meaning) return alert("단어와 뜻을 입력해주세요.");
   await addDoc(collection(db, "users", user.uid, "vocabBooks", currentBook.id, "words"), { term, meaning, createdAt: Date.now() });
   wordTermEl.value = ""; wordMeaningEl.value = "";
 };
@@ -410,7 +410,7 @@ passBtn.onclick = () => {
   if (!testRunning || awaitingAdvance) return;
   const w = wordsCache[quizOrder[quizIdx]];
   answered = true;
-  pushHistory(w, false, "(패스)");
+  pushHistory(w, false, "(Pass)");
   showFeedback(false, correctTextForMode(w));
   playSound("wrong");
   scheduleNext();
@@ -434,14 +434,14 @@ function renderQuestion() {
   setDisabled(passBtn,false); setDisabled(quizAnswerEl,false);
   const w = wordsCache[quizOrder[quizIdx]];
   if (testMode==="free_m2t"){
-    quizQ.textContent = `단어를 쓰세요 (뜻): ${w.meaning}`;
+    quizQ.textContent = `단어를 쓰세요 : ${w.meaning}`;
     show(quizFreeBox); hide(quizChoices); show(submitAnswerBtn); updateStatus();
   } else if (testMode==="mcq_t2m"){
-    quizQ.textContent = `정답을 고르세요 (단어 → 뜻): ${w.term}`;
+    quizQ.textContent = `정답을 고르세요 : ${w.term}`;
     hide(quizFreeBox); show(quizChoices); hide(submitAnswerBtn);
     renderChoices(w,"meaning"); startMcqTimer(w);
   } else {
-    quizQ.textContent = `정답을 고르세요 (뜻 → 단어): ${w.meaning}`;
+    quizQ.textContent = `정답을 고르세요 : ${w.meaning}`;
     hide(quizFreeBox); show(quizChoices); hide(submitAnswerBtn);
     renderChoices(w,"term"); startMcqTimer(w);
   }
@@ -532,7 +532,7 @@ function startMyGroupsLive(uid) {
           const newName = prompt("새 그룹 이름", g.name);
           if (newName === null) return;
           const trimmed = newName.trim();
-          if (!trimmed) return alert("이름을 입력해줘!");
+          if (!trimmed) return alert("이름을 입력해주세요.");
           await renameGroup(gid, trimmed);
         };
 
@@ -560,8 +560,8 @@ function startMyGroupsLive(uid) {
 createGroupBtn.onclick = async () => {
   const user = auth.currentUser;
   const name = (groupNameEl.value || "").trim();
-  if (!user) return alert("로그인 먼저!");
-  if (!name) return alert("그룹 이름을 입력해줘!");
+  if (!user) return alert("로그인을 해 주세요.");
+  if (!name) return alert("그룹 이름을 입력해주세요.");
 
   const code = makeInviteCode();
   const groupRef = await addDoc(collection(db, "groups"), { name, code, publicJoin: true, ownerId: user.uid, createdAt: Date.now() });
@@ -576,8 +576,8 @@ createGroupBtn.onclick = async () => {
 joinGroupBtn.onclick = async () => {
   const user = auth.currentUser;
   const code = (joinCodeEl.value || "").trim().toUpperCase();
-  if (!user) return alert("로그인 먼저!");
-  if (!code) return alert("초대코드를 입력해줘!");
+  if (!user) return alert("로그인을 해 주세요/-.");
+  if (!code) return alert("초대코드를 입력해주세요.");
 
   const q = query(collection(db, "groups"), where("code","==",code), where("publicJoin","==",true));
   const snap = await getDocs(q);
@@ -590,7 +590,7 @@ joinGroupBtn.onclick = async () => {
   const myRef = doc(db, "users", user.uid, "groups", gid);
   const mySnap = await getDoc(myRef);
   if (mySnap.exists()) {
-    alert("이미 가입된 그룹이야!");
+    alert("이미 가입된 그룹입니다.");
     joinCodeEl.value = "";
     return openGroup({ id: gid, name: data.name, code: data.code });
   }
@@ -640,7 +640,7 @@ leaveGroupBtn.onclick = async () => {
   await deleteDoc(doc(db, "groups", gid, "members", user.uid));
   await deleteDoc(doc(db, "users", user.uid, "groups", gid));
   backToGroupsBtn.onclick();
-  alert("탈퇴했어!");
+  alert("탈퇴가 완료되었습니다.");
 };
 
 // 그룹 이름변경/삭제 (소유자)
@@ -697,13 +697,13 @@ function startGBooksLive(gid) {
       btnWrap.className = "btn-wrap";
       if (auth.currentUser && auth.currentUser.uid === b.ownerId) {
         const renameBtn = document.createElement("button");
-        renameBtn.textContent = "이름수정";
+        renameBtn.textContent = "Rename";
         renameBtn.onclick = async (e) => {
           e.stopPropagation();
           const nn = prompt("새 단어장 이름", b.name);
           if (nn === null) return;
           const trimmed = nn.trim();
-          if (!trimmed) return alert("이름을 입력해줘!");
+          if (!trimmed) return alert("이름을 입력해주세요.");
           await updateDoc(doc(db, "groups", gid, "vocabBooks", b.id), { name: trimmed });
         };
 
@@ -733,7 +733,7 @@ function startGBooksLive(gid) {
 
 // 드롭다운 갱신
 function refreshImportSourceSelect(){
-  importSourceSel.innerHTML = `<option value="">내 단어장을 선택하세요</option>`;
+  importSourceSel.innerHTML = `<option value=""> 내 단어장을 선택하세요 </option>`;
   myBooksCache.forEach(b => {
     const opt = document.createElement("option");
     opt.value = b.id; opt.textContent = b.name;
@@ -744,11 +744,11 @@ function refreshImportSourceSelect(){
 // "내 단어장에서 가져오기" 버튼
 gBookImportBtn.onclick = async () => {
   const user = auth.currentUser;
-  if (!user) return alert("로그인 먼저!");
-  if (!currentGroup) return alert("그룹을 먼저 열어줘!");
+  if (!user) return alert("로그인을 해 주세요.");
+  if (!currentGroup) return alert("그룹을 먼저 열어주세요.");
 
   const sourceBookId = importSourceSel.value;
-  if (!sourceBookId) return alert("가져올 '내 단어장'을 선택해줘!");
+  if (!sourceBookId) return alert("가져올 단어장을 선택해주세요.");
 
   // 소스 단어장 이름/단어들 조회
   const srcBookRef = doc(db, "users", user.uid, "vocabBooks", sourceBookId);
@@ -792,7 +792,7 @@ function openGBook(gid, b) {
   currentGBook = { gid, ...b };
   gIsOwner = auth.currentUser && (auth.currentUser.uid === b.ownerId);
   gCurrentBookTitleEl.textContent = `그룹 단어장 – ${b.name}`;
-  gOwnerNoteEl.textContent = gIsOwner ? "🔒 이 단어장은 내가 업로드함 — 수정/삭제 가능" : "읽기 전용 — 업로더만 수정/삭제 가능";
+  gOwnerNoteEl.textContent = gIsOwner ? "수정/삭제 가능" : "읽기 전용";
 
   hide(appSection); hide(wordsSection); hide(groupSection); show(gWordsSection);
 
@@ -859,13 +859,13 @@ function startGWordsLive() {
 // 그룹 단어 추가(업로더만)
 gAddWordBtn.onclick = async () => {
   const user = auth.currentUser;
-  if (!user) return alert("로그인 먼저!");
-  if (!currentGBook) return alert("그룹 단어장을 먼저 열어줘!");
-  if (!gIsOwner) return alert("업로더만 단어를 추가할 수 있어!");
+  if (!user) return alert("로그인을 해 주세요.");
+  if (!currentGBook) return alert("그룹 단어장을 먼저 열어주세요.");
+  if (!gIsOwner) return alert("업로더만 단어를 추가할 수 있습니다.");
 
   const term = (gWordTermEl.value || "").trim();
   const meaning = (gWordMeaningEl.value || "").trim();
-  if (!term || !meaning) return alert("단어와 뜻을 입력해줘!");
+  if (!term || !meaning) return alert("단어와 뜻을 입력해주세요.");//////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
   await addDoc(collection(db, "groups", currentGBook.gid, "vocabBooks", currentGBook.id, "words"), {
     term, meaning, ownerId: user.uid, createdAt: Date.now()
