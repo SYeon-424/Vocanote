@@ -214,7 +214,22 @@ function startBooksLive(uid) {
       label.style.cursor = "pointer";
       label.onclick = () => openBook({ id: d.id, name: data.name });
 
-      // 오른쪽: 삭제 버튼
+      // 오른쪽: 버튼들 (이름수정, 삭제)
+      const renameBtn = document.createElement("button");
+      renameBtn.textContent = "이름수정";
+      renameBtn.onclick = async (e) => {
+        e.stopPropagation();
+        const newName = prompt("새 단어장 이름", data.name);
+        if (newName === null) return;
+        const trimmed = newName.trim();
+        if (!trimmed) return alert("이름을 입력해줘!");
+        try {
+          await renameVocabBook(uid, d.id, trimmed);
+        } catch (err) {
+          alert("이름 변경 중 오류: " + (err?.message || err));
+        }
+      };
+
       const delBtn = document.createElement("button");
       delBtn.textContent = "삭제";
       delBtn.onclick = async (e) => {
@@ -229,6 +244,7 @@ function startBooksLive(uid) {
 
       const btnWrap = document.createElement("div");
       btnWrap.className = "btn-wrap";
+      btnWrap.appendChild(renameBtn);
       btnWrap.appendChild(delBtn);
 
       li.appendChild(label);
@@ -237,7 +253,6 @@ function startBooksLive(uid) {
     });
   });
 }
-
 
 function openBook(book) {
   currentBook = book;
@@ -583,6 +598,31 @@ function finishTest() {
   `;
   show(testResultEl);
 }
+
+// 단어장 이름 변경
+async function renameVocabBook(uid, bookId, newName) {
+  const bookRef = doc(db, "users", uid, "vocabBooks", bookId);
+  await updateDoc(bookRef, { name: newName });
+}
+
+// 단어장 삭제: 하위 words 모두 삭제 후 책 문서 삭제
+async function deleteVocabBook(uid, bookId) {
+  const wordsCol = collection(db, "users", uid, "vocabBooks", bookId, "words");
+  const snap = await getDocs(wordsCol);
+
+  const batch = writeBatch(db);
+  snap.forEach((docSnap) => {
+    const wRef = doc(db, "users", uid, "vocabBooks", bookId, "words", docSnap.id);
+    batch.delete(wRef);
+  });
+  if (!snap.empty) {
+    await batch.commit();
+  }
+
+  const bookRef = doc(db, "users", uid, "vocabBooks", bookId);
+  await deleteDoc(bookRef);
+}
+
 
 // XSS 방지용 간단 escape
 function escapeHtml(s) {
