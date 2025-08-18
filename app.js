@@ -662,9 +662,9 @@ function finishTest() {
   clearTimers();
   hide(quizArea);
 
-  const header = `<strong>결과:</strong>`;
+  const total = quizOrder.length || 0;
+  const header = `<strong>결과:</strong> ${score} / ${total}`;
 
-  // 상세 목록 생성: 맞으면 초록, 틀리면 빨강. 서술형은 사용자가 쓴 답도 표시.
   const items = testHistory.map((h, idx) => {
     const okColor = h.correct ? "var(--ok)" : "var(--bad)";
     const line1 = `<div><b>${idx+1}.</b> ${escapeHtml(h.term)} — <em>${escapeHtml(h.meaning)}</em></div>`;
@@ -681,7 +681,6 @@ function finishTest() {
   `;
   show(testResultEl);
 }
-
 
 // XSS 방지용 간단 escape
 function escapeHtml(s) {
