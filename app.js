@@ -12,7 +12,7 @@ import {
   getDocs, writeBatch, where
 } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore.js";
 
-console.log("app.js v23");
+console.log("app.js v24");
 
 const auth = window.firebaseAuth;
 const db   = window.firebaseDB;
@@ -121,7 +121,7 @@ let unsubBooks = null;
 let unsubWords = null;
 let currentBook = null;
 let wordsCache = [];
-let myBooksCache = []; // 그룹 업로드용(내 단어장 선택)
+let myBooksCache = []; // 그룹 업로드용
 
 let testRunning = false;
 let testMode = "mcq_t2m";
@@ -612,7 +612,6 @@ function openGroup(g) {
 
   startMembersLive(g.id);
   startGBooksLive(g.id); // 그룹 단어장 목록
-  // 내 단어장 드롭다운 최신화 (startBooksLive에서 채워두지만, 혹시 늦게 열렸을 경우 대비)
   refreshImportSourceSelect();
 }
 function startMembersLive(gid) {
@@ -654,7 +653,7 @@ async function renameGroup(groupId, newName) {
   });
   await batch.commit();
 }
-async function deleteGroup(groupId, ownerUid) {
+async function deleteGroup(groupId) {
   // 멤버십 정리
   const memSnap = await getDocs(collection(db, "groups", groupId, "members"));
   const batch = writeBatch(db);
@@ -732,7 +731,7 @@ function startGBooksLive(gid) {
   });
 }
 
-// 드롭다운 갱신 (혹시 늦게 로드된 경우)
+// 드롭다운 갱신
 function refreshImportSourceSelect(){
   importSourceSel.innerHTML = `<option value="">내 단어장을 선택하세요</option>`;
   myBooksCache.forEach(b => {
@@ -796,6 +795,9 @@ function openGBook(gid, b) {
   gOwnerNoteEl.textContent = gIsOwner ? "🔒 이 단어장은 내가 업로드함 — 수정/삭제 가능" : "읽기 전용 — 업로더만 수정/삭제 가능";
 
   hide(appSection); hide(wordsSection); hide(groupSection); show(gWordsSection);
+
+  // ⭐ 그룹 탭 기본: '수정'
+  gActivateTab("manage");
 
   startGWordsLive();
   gResetTestUI(true);
@@ -871,6 +873,24 @@ gAddWordBtn.onclick = async () => {
 
   gWordTermEl.value = ""; gWordMeaningEl.value = "";
 };
+
+/* ===== 그룹 탭 전환 (★ 추가된 부분) ===== */
+gTabManageBtn.onclick = () => gActivateTab("manage");
+gTabTestBtn.onclick   = () => gActivateTab("test");
+
+function gActivateTab(which) {
+  if (which === "manage") {
+    gTabManageBtn.classList.add("active");
+    gTabTestBtn.classList.remove("active");
+    show(gManagePane);
+    hide(gTestPane);
+  } else {
+    gTabTestBtn.classList.add("active");
+    gTabManageBtn.classList.remove("active");
+    hide(gManagePane);
+    show(gTestPane);
+  }
+}
 
 /* ===================== 그룹 테스트 ===================== */
 gStartTestBtn.onclick = () => {
