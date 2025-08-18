@@ -205,14 +205,39 @@ function startBooksLive(uid) {
     bookListEl.innerHTML = "";
     snap.forEach((d) => {
       const data = d.data();
+
       const li = document.createElement("li");
-      li.textContent = data.name;
-      li.style.cursor = "pointer";
-      li.onclick = () => openBook({ id: d.id, name: data.name });
+
+      // 왼쪽: 제목(클릭 시 열기)
+      const label = document.createElement("span");
+      label.textContent = data.name;
+      label.style.cursor = "pointer";
+      label.onclick = () => openBook({ id: d.id, name: data.name });
+
+      // 오른쪽: 삭제 버튼
+      const delBtn = document.createElement("button");
+      delBtn.textContent = "삭제";
+      delBtn.onclick = async (e) => {
+        e.stopPropagation();
+        if (!confirm(`단어장 "${data.name}"을(를) 삭제할까요?\n(안의 단어들도 함께 삭제됩니다)`)) return;
+        try {
+          await deleteVocabBook(uid, d.id);
+        } catch (err) {
+          alert("삭제 중 오류: " + (err?.message || err));
+        }
+      };
+
+      const btnWrap = document.createElement("div");
+      btnWrap.className = "btn-wrap";
+      btnWrap.appendChild(delBtn);
+
+      li.appendChild(label);
+      li.appendChild(btnWrap);
       bookListEl.appendChild(li);
     });
   });
 }
+
 
 function openBook(book) {
   currentBook = book;
