@@ -81,10 +81,7 @@ button{
 }
 button:hover{ border-color: var(--primary); }
 button:active{ transform: translateY(1px); }
-button[disabled]{
-  opacity: .6;
-  cursor: not-allowed;
-}
+button[disabled]{ opacity: .6; cursor: not-allowed; }
 
 /* 주요 버튼 느낌 (id로 지정) */
 #create-book, #add-word, #start-test, #submit-answer{
@@ -112,12 +109,18 @@ button[disabled]{
 /* ====== 리스트(단어장/단어) ====== */
 ul{ list-style: none; padding: 0; margin: 10px 0 0; display: grid; gap: 8px; }
 ul li{
-  display:flex; align-items:center; justify-content: space-between;
+  display:flex;
+  align-items:center;
+  justify-content: space-between; /* 왼쪽 라벨 / 오른쪽 버튼 묶음 */
   gap:10px;
   padding: 10px 12px;
   border-radius: 12px;
   background: rgba(255,255,255,.02);
   border: 1px solid var(--line);
+}
+ul li .btn-wrap{
+  display:flex;
+  gap: 6px;
 }
 ul li button{
   padding: 6px 10px;
