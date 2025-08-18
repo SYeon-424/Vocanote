@@ -9,10 +9,10 @@ import {
 import {
   collection, addDoc, onSnapshot, query, orderBy,
   doc, deleteDoc, updateDoc, setDoc, getDoc,
-  getDocs, writeBatch
+  getDocs, writeBatch, where
 } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore.js";
 
-console.log("app.js patched v17");
+console.log("app.js v19");
 
 const auth = window.firebaseAuth;
 const db   = window.firebaseDB;
@@ -22,8 +22,8 @@ const authSection = document.getElementById("auth-section");
 const appSection  = document.getElementById("app-section");
 const wordsSection = document.getElementById("words-section");
 
-const userDisplayEl = document.getElementById("user-display");   // index.html v10 이상
-const nicknameEl = document.getElementById("nickname");          // index.html v10 이상
+const userDisplayEl = document.getElementById("user-display");
+const nicknameEl = document.getElementById("nickname");
 const emailEl = document.getElementById("email");
 const pwEl    = document.getElementById("password");
 const signupBtn = document.getElementById("signup-btn");
@@ -59,18 +59,32 @@ const quizArea      = document.getElementById("quiz-area");
 const quizQ         = document.getElementById("quiz-q");
 const quizFreeBox   = document.getElementById("quiz-free");
 const quizAnswerEl  = document.getElementById("quiz-answer");
-const submitAnswerBtn = document.getElementById("submit-answer"); // 서술형 전용
+const submitAnswerBtn = document.getElementById("submit-answer");
 const passBtn       = document.getElementById("pass-question");
 const quizChoices   = document.getElementById("quiz-choices");
 const quizFeedback  = document.getElementById("quiz-feedback");
 const endTestBtn    = document.getElementById("end-test");
 const testResultEl  = document.getElementById("test-result");
 
+/* ====== 그룹 DOM ====== */
+const groupNameEl = document.getElementById("group-name");
+const createGroupBtn = document.getElementById("create-group");
+const joinCodeEl = document.getElementById("join-code");
+const joinGroupBtn = document.getElementById("join-group");
+const myGroupListEl = document.getElementById("my-group-list");
+
+const groupSection = document.getElementById("group-section");
+const backToGroupsBtn = document.getElementById("back-to-groups");
+const currentGroupTitleEl = document.getElementById("current-group-title");
+const groupInviteCodeEl = document.getElementById("group-invite-code");
+const leaveGroupBtn = document.getElementById("leave-group");
+const groupMembersEl = document.getElementById("group-members");
+
 /* ===================== 상태 ===================== */
 let unsubBooks = null;
 let unsubWords = null;
-let currentBook = null; // { id, name }
-let wordsCache = [];    // [{id, term, meaning}, ...]
+let currentBook = null;
+let wordsCache = [];
 
 let testRunning = false;
 let testMode = "mcq_t2m"; // mcq_t2m | mcq_m2t | free_m2t
@@ -84,9 +98,14 @@ let advanceTimer = null;
 let mcqRemain = 0;
 let mcqTick = null;
 
-// 결과 요약 히스토리
+// 결과 히스토리
 // {term, meaning, mode, correct, userAnswer}
 let testHistory = [];
+
+/* 그룹 상태 */
+let unsubMyGroups = null;
+let unsubGroupMembers = null;
+let currentGroup = null; // { id, name, code }
 
 /* ===================== 유틸 ===================== */
 const shuffle = (arr) => {
@@ -112,10 +131,9 @@ function clearTimers() {
   if (mcqTick) { clearInterval(mcqTick); mcqTick = null; }
 }
 
-/* ===== 사운드 유틸 (Web Audio, 파일 불필요) ===== */
+/* ===== 사운드 (Web Audio) ===== */
 let audioCtx = null;
 let soundEnabled = true;
-
 function ensureAudio() {
   if (!soundEnabled) return;
   if (!audioCtx) {
@@ -155,7 +173,7 @@ function playSound(kind) {
     beep({freq:220, ms:160, type:"sawtooth", gain:0.06});
   }
 }
-// 간단 음소거 토글
+// 음소거 토글 버튼
 (function addSoundToggle(){
   try {
     const btn = document.createElement("button");
@@ -183,8 +201,9 @@ onAuthStateChanged(auth, async (user) => {
     authSection.classList.add("hidden");
     appSection.classList.remove("hidden");
     wordsSection.classList.add("hidden");
+    if (currentGroup) { hide(groupSection); currentGroup=null; }
 
-    // 닉네임 표시: Auth.displayName → Firestore → 이메일
+    // 닉네임 표시: displayName → Firestore → 이메일
     let display = user.displayName || "";
     if (!display) {
       try {
@@ -192,41 +211,37 @@ onAuthStateChanged(auth, async (user) => {
         if (snap.exists()) display = snap.data().nickname || "";
       } catch {}
     }
-    if (userDisplayEl) {
-      userDisplayEl.textContent = display || user.email;
-    } else {
-      const userEmailFallback = document.getElementById("user-email");
-      if (userEmailFallback) userEmailFallback.textContent = display || user.email;
-    }
+    userDisplayEl.textContent = display || user.email;
 
     startBooksLive(user.uid);
+    startMyGroupsLive(user.uid); // 그룹 목록 실시간
   } else {
     appSection.classList.add("hidden");
     wordsSection.classList.add("hidden");
     authSection.classList.remove("hidden");
 
-    if (userDisplayEl) userDisplayEl.textContent = "";
-    const userEmailFallback = document.getElementById("user-email");
-    if (userEmailFallback) userEmailFallback.textContent = "";
+    userDisplayEl.textContent = "";
 
     bookListEl.innerHTML = "";
     wordListEl.innerHTML = "";
+    myGroupListEl.innerHTML = "";
+    groupMembersEl.innerHTML = "";
     if (unsubBooks) unsubBooks();
     if (unsubWords) unsubWords();
+    if (unsubMyGroups) unsubMyGroups();
+    if (unsubGroupMembers) unsubGroupMembers();
     resetTestUI(true);
   }
 });
 
-// 회원가입 (닉네임 저장)
+// 회원가입
 signupBtn.onclick = async () => {
   const nickname = (nicknameEl?.value || "").trim();
   const email = (emailEl.value || "").trim();
   const pw = pwEl.value;
-
   if (!nickname) return alert("닉네임을 입력해줘!");
   if (!email) return alert("이메일을 입력해줘!");
   if (!pw) return alert("비밀번호를 입력해줘!");
-
   try {
     const cred = await createUserWithEmailAndPassword(auth, email, pw);
     await updateProfile(cred.user, { displayName: nickname });
@@ -234,19 +249,12 @@ signupBtn.onclick = async () => {
       nickname, email, createdAt: Date.now()
     });
     alert("회원가입 완료!");
-  } catch (e) {
-    alert(e.message);
-  }
+  } catch (e) { alert(e.message); }
 };
-
 loginBtn.onclick = async () => {
-  try {
-    await signInWithEmailAndPassword(auth, emailEl.value, pwEl.value);
-  } catch (e) {
-    alert(e.message);
-  }
+  try { await signInWithEmailAndPassword(auth, emailEl.value, pwEl.value); }
+  catch (e) { alert(e.message); }
 };
-
 logoutBtn.onclick = async () => { await signOut(auth); };
 
 /* ===================== 단어장 CRUD ===================== */
@@ -268,16 +276,13 @@ function startBooksLive(uid) {
     bookListEl.innerHTML = "";
     snap.forEach((d) => {
       const data = d.data();
-
       const li = document.createElement("li");
 
-      // 왼쪽: 제목(클릭 시 열기)
       const label = document.createElement("span");
       label.textContent = data.name;
       label.style.cursor = "pointer";
       label.onclick = () => openBook({ id: d.id, name: data.name });
 
-      // 오른쪽: 버튼들 (이름수정, 삭제)
       const renameBtn = document.createElement("button");
       renameBtn.textContent = "이름수정";
       renameBtn.onclick = async (e) => {
@@ -286,11 +291,8 @@ function startBooksLive(uid) {
         if (newName === null) return;
         const trimmed = newName.trim();
         if (!trimmed) return alert("이름을 입력해줘!");
-        try {
-          await renameVocabBook(uid, d.id, trimmed);
-        } catch (err) {
-          alert("이름 변경 중 오류: " + (err?.message || err));
-        }
+        try { await renameVocabBook(uid, d.id, trimmed); }
+        catch (err) { alert("이름 변경 중 오류: " + (err?.message || err)); }
       };
 
       const delBtn = document.createElement("button");
@@ -298,11 +300,8 @@ function startBooksLive(uid) {
       delBtn.onclick = async (e) => {
         e.stopPropagation();
         if (!confirm(`단어장 "${data.name}"을(를) 삭제할까요?\n(안의 단어들도 함께 삭제됩니다)`)) return;
-        try {
-          await deleteVocabBook(uid, d.id);
-        } catch (err) {
-          alert("삭제 중 오류: " + (err?.message || err));
-        }
+        try { await deleteVocabBook(uid, d.id); }
+        catch (err) { alert("삭제 중 오류: " + (err?.message || err)); }
       };
 
       const btnWrap = document.createElement("div");
@@ -316,27 +315,19 @@ function startBooksLive(uid) {
     });
   });
 }
-
-// 단어장 이름 변경
 async function renameVocabBook(uid, bookId, newName) {
   const bookRef = doc(db, "users", uid, "vocabBooks", bookId);
   await updateDoc(bookRef, { name: newName });
 }
-
-// 단어장 삭제: 하위 words 모두 삭제 후 책 문서 삭제
 async function deleteVocabBook(uid, bookId) {
   const wordsCol = collection(db, "users", uid, "vocabBooks", bookId, "words");
   const snap = await getDocs(wordsCol);
-
   const batch = writeBatch(db);
   snap.forEach((docSnap) => {
     const wRef = doc(db, "users", uid, "vocabBooks", bookId, "words", docSnap.id);
     batch.delete(wRef);
   });
-  if (!snap.empty) {
-    await batch.commit();
-  }
-
+  if (!snap.empty) await batch.commit();
   const bookRef = doc(db, "users", uid, "vocabBooks", bookId);
   await deleteDoc(bookRef);
 }
@@ -346,7 +337,6 @@ function openBook(book) {
   currentBookTitleEl.textContent = `단어장 – ${book.name}`;
   appSection.classList.add("hidden");
   wordsSection.classList.remove("hidden");
-
   activateTab("manage");
   startWordsLive();
   resetTestUI(true);
@@ -379,8 +369,7 @@ function startWordsLive() {
         const newMeaning = prompt("뜻(meaning) 수정", w.meaning);
         if (newMeaning === null) return;
         await updateDoc(doc(db, "users", user.uid, "vocabBooks", currentBook.id, "words", w.id), {
-          term: newTerm.trim(),
-          meaning: newMeaning.trim()
+          term: newTerm.trim(), meaning: newMeaning.trim()
         });
       };
 
@@ -432,28 +421,18 @@ backToBooksBtn.onclick = () => {
 /* ===================== 탭 ===================== */
 tabManageBtn.onclick = () => activateTab("manage");
 tabTestBtn.onclick   = () => activateTab("test");
-
 function activateTab(which) {
-  if (which === "manage") {
-    tabManageBtn.classList.add("active");
-    tabTestBtn.classList.remove("active");
-    show(managePane); hide(testPane);
-  } else {
-    tabTestBtn.classList.add("active");
-    tabManageBtn.classList.remove("active");
-    show(testPane); hide(managePane);
-  }
+  if (which === "manage") { tabManageBtn.classList.add("active"); tabTestBtn.classList.remove("active"); show(managePane); hide(testPane); }
+  else { tabTestBtn.classList.add("active"); tabManageBtn.classList.remove("active"); show(testPane); hide(managePane); }
 }
 
 /* ===================== 테스트 로직 ===================== */
 startTestBtn.onclick = () => {
   if (!wordsCache.length) return alert("단어가 없습니다. 단어를 먼저 추가해주세요.");
   testMode = testModeSel.value; // mcq_t2m | mcq_m2t | free_m2t
-
   if ((testMode === "mcq_t2m" || testMode === "mcq_m2t") && wordsCache.length < 3) {
     return alert("객관식은 최소 3개 단어가 필요합니다.");
   }
-
   testRunning = true;
   answered = false;
   awaitingAdvance = false;
@@ -471,20 +450,19 @@ startTestBtn.onclick = () => {
 // 서술형 제출
 submitAnswerBtn.onclick = () => {
   if (!testRunning || answered || awaitingAdvance) return;
-  if (testMode !== "free_m2t") return; // 서술형 전용
+  if (testMode !== "free_m2t") return;
   const w = wordsCache[quizOrder[quizIdx]];
   const ansNorm = normalize(quizAnswerEl.value);
   const ok = ansNorm === normalize(w.term);
   answered = true;
 
-  // 기록
   pushHistory(w, ok, quizAnswerEl.value);
   showFeedback(ok, correctTextForMode(w));
   playSound(ok ? "correct" : "wrong");
   scheduleNext();
 };
 
-// 패스 (오답 처리 후 2초 대기)
+// 패스
 passBtn.onclick = () => {
   if (!testRunning || awaitingAdvance) return;
   const w = wordsCache[quizOrder[quizIdx]];
@@ -510,15 +488,11 @@ function resetTestUI(hideAll=false) {
   quizFeedback.textContent = "";
   quizChoices.innerHTML = "";
   quizAnswerEl.value = "";
-  if (hideAll) {
-    hide(quizArea);
-    hide(testResultEl);
-  }
+  if (hideAll) { hide(quizArea); hide(testResultEl); }
   testStatusEl.textContent = "";
 }
 
 function updateStatus() {
-  // 진행만 표시 (점수 제거) + MCQ 남은 시간
   const base = `진행: ${quizIdx+1}/${quizOrder.length}`;
   if (testRunning && (testMode === "mcq_t2m" || testMode === "mcq_m2t") && mcqRemain > 0 && !answered) {
     testStatusEl.textContent = `${base} | 남은 시간: ${mcqRemain}s`;
@@ -541,23 +515,20 @@ function renderQuestion() {
   const w = wordsCache[quizOrder[quizIdx]];
 
   if (testMode === "free_m2t") {
-    // 서술형: 뜻 -> 단어(스펠링)
     quizQ.textContent = `단어를 쓰세요 (뜻): ${w.meaning}`;
     show(quizFreeBox); hide(quizChoices);
-    show(submitAnswerBtn);       // 서술형은 제출 버튼 사용
+    show(submitAnswerBtn);
     updateStatus();
   } else if (testMode === "mcq_t2m") {
-    // 객관식: 단어 -> 뜻 (3지선다)
     quizQ.textContent = `정답을 고르세요 (단어 → 뜻): ${w.term}`;
     hide(quizFreeBox); show(quizChoices);
-    hide(submitAnswerBtn);       // MCQ는 제출 버튼 숨김
+    hide(submitAnswerBtn);
     renderChoices(w, "meaning");
     startMcqTimer(w);
   } else {
-    // mcq_m2t: 뜻 -> 단어 (3지선다)
     quizQ.textContent = `정답을 고르세요 (뜻 → 단어): ${w.meaning}`;
     hide(quizFreeBox); show(quizChoices);
-    hide(submitAnswerBtn);       // MCQ는 제출 버튼 숨김
+    hide(submitAnswerBtn);
     renderChoices(w, "term");
     startMcqTimer(w);
   }
@@ -574,7 +545,6 @@ function startMcqTimer(w) {
     updateStatus();
     if (mcqRemain <= 0) {
       clearInterval(mcqTick); mcqTick = null;
-      // 시간초과 → 오답 처리
       if (!answered && !awaitingAdvance) {
         answered = true;
         pushHistory(w, false, "(시간초과)");
@@ -594,18 +564,15 @@ function renderChoices(correct, showField) {
   options.forEach((opt) => {
     const b = document.createElement("button");
     b.textContent = (showField === "term" ? opt.term : opt.meaning);
-
     b.onclick = () => {
       if (answered || awaitingAdvance) return;
       answered = true;
       const ok = opt.id === correct.id;
-      // 사용자가 선택한 보기 텍스트 기록
       pushHistory(correct, ok, b.textContent);
       showFeedback(ok, correctTextForMode(correct));
       playSound(ok ? "correct" : "wrong");
       scheduleNext();
     };
-
     quizChoices.appendChild(b);
   });
 }
@@ -614,15 +581,12 @@ function showFeedback(ok, correctText) {
   quizFeedback.textContent = ok ? "✅ 정답!" : `❌ 오답. 정답: ${correctText}`;
   setDisabled(passBtn, true);
   setDisabled(quizAnswerEl, true);
-  // 보기 클릭 막기
   [...quizChoices.children].forEach(btn => btn.onclick = null);
 }
-
 function correctTextForMode(w) {
-  if (testMode === "mcq_t2m") return w.meaning; // 단어→뜻
-  return w.term; // 나머지 두 모드는 뜻→단어
+  if (testMode === "mcq_t2m") return w.meaning;
+  return w.term;
 }
-
 // 자동 다음: 2초
 function scheduleNext() {
   awaitingAdvance = true;
@@ -632,7 +596,6 @@ function scheduleNext() {
     nextQuestion();
   }, 2000);
 }
-
 function nextQuestion() {
   if (!testRunning) return;
   if (quizIdx < quizOrder.length - 1) {
@@ -643,18 +606,13 @@ function nextQuestion() {
     finishTest();
   }
 }
-
-// 히스토리 저장
 function pushHistory(wordObj, ok, userAnswerStr) {
   testHistory.push({
-    term: wordObj.term,
-    meaning: wordObj.meaning,
-    mode: testMode, // 해당 문제의 모드
-    correct: !!ok,
-    userAnswer: (userAnswerStr ?? "").toString()
+    term: wordObj.term, meaning: wordObj.meaning,
+    mode: testMode, correct: !!ok, userAnswer: (userAnswerStr ?? "").toString()
   });
 }
-
+// 결과
 function finishTest() {
   testRunning = false;
   clearTimers();
@@ -674,14 +632,14 @@ function finishTest() {
 
   testResultEl.innerHTML = `
     <div style="margin-bottom:8px;">${header}</div>
-    <ul style="padding-left:16px; list-style: none; margin:0;">
+    <ul style="padding-left:16px; list-style:none; margin:0;">
       ${items}
     </ul>
   `;
   show(testResultEl);
 }
 
-// XSS 방지용 간단 escape
+// XSS 방지용 escape
 function escapeHtml(s) {
   return (s ?? "").toString()
     .replaceAll("&","&amp;")
@@ -690,3 +648,149 @@ function escapeHtml(s) {
     .replaceAll('"',"&quot;")
     .replaceAll("'","&#039;");
 }
+
+/* ===================== 그룹 기능 ===================== */
+// 초대코드 생성
+function makeInviteCode(len = 6) {
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  let s = "";
+  for (let i=0;i<len;i++) s += chars[Math.floor(Math.random()*chars.length)];
+  return s;
+}
+
+// 내 그룹 목록 실시간
+function startMyGroupsLive(uid) {
+  if (unsubMyGroups) unsubMyGroups();
+  const qMy = query(collection(db, "users", uid, "groups"), orderBy("joinedAt", "desc"));
+  unsubMyGroups = onSnapshot(qMy, (snap) => {
+    myGroupListEl.innerHTML = "";
+    snap.forEach(d => {
+      const g = { id: d.id, ...d.data() }; // {groupId, name, code, ...}
+      const li = document.createElement("li");
+
+      const label = document.createElement("span");
+      label.textContent = g.name;
+      label.style.cursor = "pointer";
+      label.onclick = () => openGroup({ id: g.groupId || g.id, name: g.name, code: g.code });
+
+      const btnWrap = document.createElement("div");
+      btnWrap.className = "btn-wrap";
+      const openBtn = document.createElement("button");
+      openBtn.textContent = "열기";
+      openBtn.onclick = () => openGroup({ id: g.groupId || g.id, name: g.name, code: g.code });
+
+      btnWrap.appendChild(openBtn);
+      li.appendChild(label);
+      li.appendChild(btnWrap);
+      myGroupListEl.appendChild(li);
+    });
+  });
+}
+
+// 그룹 만들기
+createGroupBtn.onclick = async () => {
+  const user = auth.currentUser;
+  const name = (groupNameEl.value || "").trim();
+  if (!user) return alert("로그인 먼저!");
+  if (!name) return alert("그룹 이름을 입력해줘!");
+
+  const code = makeInviteCode();
+  const groupRef = await addDoc(collection(db, "groups"), {
+    name, code, publicJoin: true, ownerId: user.uid, createdAt: Date.now()
+  });
+
+  await setDoc(doc(db, "groups", groupRef.id, "members", user.uid), {
+    uid: user.uid, nickname: user.displayName || user.email, joinedAt: Date.now(), owner: true
+  });
+  await setDoc(doc(db, "users", user.uid, "groups", groupRef.id), {
+    groupId: groupRef.id, name, code, joinedAt: Date.now(), owner: true
+  });
+
+  groupNameEl.value = "";
+  openGroup({ id: groupRef.id, name, code });
+};
+
+// 코드로 가입
+joinGroupBtn.onclick = async () => {
+  const user = auth.currentUser;
+  const code = (joinCodeEl.value || "").trim().toUpperCase();
+  if (!user) return alert("로그인 먼저!");
+  if (!code) return alert("초대코드를 입력해줘!");
+
+  const q = query(
+    collection(db, "groups"),
+    where("code", "==", code),
+    where("publicJoin", "==", true)
+  );
+  const snap = await getDocs(q);
+  if (snap.empty) return alert("해당 코드의 공개 그룹이 없어요.");
+
+  const gdoc = snap.docs[0];
+  const gid = gdoc.id;
+  const data = gdoc.data();
+
+  // 이미 가입했는지 확인
+  const myRef = doc(db, "users", user.uid, "groups", gid);
+  const mySnap = await getDoc(myRef);
+  if (mySnap.exists()) {
+    alert("이미 가입된 그룹이야!");
+    joinCodeEl.value = "";
+    return openGroup({ id: gid, name: data.name, code: data.code });
+  }
+
+  // 가입
+  await setDoc(doc(db, "groups", gid, "members", user.uid), {
+    uid: user.uid, nickname: user.displayName || user.email, joinedAt: Date.now(),
+    owner: user.uid === data.ownerId
+  });
+  await setDoc(myRef, {
+    groupId: gid, name: data.name, code: data.code, joinedAt: Date.now(),
+    owner: user.uid === data.ownerId
+  });
+
+  joinCodeEl.value = "";
+  openGroup({ id: gid, name: data.name, code: data.code });
+};
+
+// 그룹 열기/멤버 실시간/뒤로/탈퇴
+function openGroup(g) {
+  currentGroup = g; // {id, name, code}
+  currentGroupTitleEl.textContent = `그룹 – ${g.name}`;
+  groupInviteCodeEl.textContent = g.code || "";
+  show(groupSection);
+  startMembersLive(g.id);
+}
+
+function startMembersLive(gid) {
+  if (unsubGroupMembers) unsubGroupMembers();
+  const qMem = query(collection(db, "groups", gid, "members"), orderBy("joinedAt", "asc"));
+  unsubGroupMembers = onSnapshot(qMem, (snap) => {
+    groupMembersEl.innerHTML = "";
+    snap.forEach(d => {
+      const m = d.data();
+      const li = document.createElement("li");
+      li.textContent = m.nickname + (m.owner ? " (관리자)" : "");
+      groupMembersEl.appendChild(li);
+    });
+  });
+}
+
+backToGroupsBtn.onclick = () => {
+  if (unsubGroupMembers) unsubGroupMembers();
+  currentGroup = null;
+  hide(groupSection);
+  groupMembersEl.innerHTML = "";
+};
+
+leaveGroupBtn.onclick = async () => {
+  const user = auth.currentUser;
+  if (!user || !currentGroup) return;
+  if (!confirm("정말 탈퇴할까요?")) return;
+
+  const gid = currentGroup.id;
+  await deleteDoc(doc(db, "groups", gid, "members", user.uid));
+  await deleteDoc(doc(db, "users", user.uid, "groups", gid));
+
+  backToGroupsBtn.onclick();
+  alert("탈퇴했어!");
+};
