@@ -5,46 +5,25 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>단어장 PWA</title>
 
-  <!-- PWA -->
   <link rel="manifest" href="./manifest.webmanifest" />
   <meta name="theme-color" content="#111111" />
-
-  <!-- 스타일 (선택) -->
   <link rel="stylesheet" href="./styles.css" />
-  <style>
-    /* 최소 스타일 (styles.css 없을 때 대비) */
-    :root { color-scheme: light dark; }
-    body { font-family: system-ui, apple-system, sans-serif; margin:0; }
-    .container { max-width: 720px; margin: 24px auto; padding: 0 16px; }
-    .hidden { display: none; }
-    .row { display:flex; gap:8px; align-items:center; }
-    .space { justify-content: space-between; }
-    input, button, select { padding:10px 12px; font-size:16px; }
-    ul { padding-left: 18px; }
-    .tab { padding:8px 12px; border:1px solid #8884; border-radius:8px; }
-    .tab.active { font-weight:700; text-decoration: underline; }
-    #quiz-choices button.selected { outline: 2px solid #888; }
-  </style>
 
-  <!-- Firebase/CDN 초기화 + 앱 로드 -->
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-app.js";
     import { getAuth } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-auth.js";
     import { getFirestore } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore.js";
     import { firebaseConfig } from "./firebase-init.js";
 
-    // Firebase 전역 초기화 (app.js에서 재사용)
     window.firebaseApp  = initializeApp(firebaseConfig);
     window.firebaseAuth = getAuth(window.firebaseApp);
     window.firebaseDB   = getFirestore(window.firebaseApp);
 
-    // PWA 서비스워커 등록
     if ("serviceWorker" in navigator) {
       navigator.serviceWorker.register("./service-worker.js");
     }
 
-    // 앱 시작 (캐시 무력화 쿼리로 최신 로드)
-    import("./app.js?v=7");
+    import("./app.js?v=10"); /* 캐시 무력화 */
   </script>
 </head>
 <body>
@@ -53,6 +32,7 @@
 
     <!-- 인증 UI -->
     <section id="auth-section">
+      <input id="nickname" placeholder="닉네임 (회원가입 시)" />
       <input id="email" placeholder="이메일" />
       <input id="password" type="password" placeholder="비밀번호" />
       <div class="row">
@@ -64,7 +44,7 @@
     <!-- 로그인 후: 단어장 목록 -->
     <section id="app-section" class="hidden">
       <div class="row space">
-        <div>👤 <span id="user-email"></span></div>
+        <div>👤 <span id="user-display"></span></div>
         <button id="logout-btn">로그아웃</button>
       </div>
 
@@ -79,7 +59,7 @@
       <ul id="book-list"></ul>
     </section>
 
-    <!-- 단어 관리 화면 (책 클릭 시 표시) -->
+    <!-- 단어 관리 화면 -->
     <section id="words-section" class="hidden">
       <div class="row space">
         <button id="back-to-books">← 단어장 목록으로</button>
@@ -102,7 +82,7 @@
         <ul id="word-list"></ul>
       </div>
 
-      <!-- 테스트 탭 (3지선다 2종 + 서술형, 제출/패스, 자동넘김) -->
+      <!-- 테스트 탭 -->
       <div id="test-pane" class="hidden">
         <div class="row" style="gap:8px; flex-wrap:wrap;">
           <label>모드:
