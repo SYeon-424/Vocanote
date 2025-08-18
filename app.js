@@ -2,25 +2,29 @@ import {
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
   signOut,
-  onAuthStateChanged
+  onAuthStateChanged,
+  updateProfile
 } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-auth.js";
 
 import {
   collection, addDoc, onSnapshot, query, orderBy,
-  doc, deleteDoc, updateDoc
+  doc, deleteDoc, updateDoc, setDoc, getDoc
 } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore.js";
 
-console.log("app.js loaded v9");
+console.log("app.js loaded v11");
 
 const auth = window.firebaseAuth;
 const db   = window.firebaseDB;
 
-// 공용 엘리먼트
+/* ===================== DOM ===================== */
+// 공용
 const authSection = document.getElementById("auth-section");
 const appSection  = document.getElementById("app-section");
 const wordsSection = document.getElementById("words-section");
 
-const userEmailEl = document.getElementById("user-email");
+// 인증/유저 표기
+const userDisplayEl = document.getElementById("user-display");   // index.html v10 이상
+const nicknameEl = document.getElementById("nickname");          // index.html v10 이상
 const emailEl = document.getElementById("email");
 const pwEl    = document.getElementById("password");
 const signupBtn = document.getElementById("signup-btn");
@@ -63,23 +67,22 @@ const quizFeedback  = document.getElementById("quiz-feedback");
 const endTestBtn    = document.getElementById("end-test");
 const testResultEl  = document.getElementById("test-result");
 
-// 상태
+/* ===================== 상태 ===================== */
 let unsubBooks = null;
 let unsubWords = null;
 let currentBook = null; // { id, name }
 let wordsCache = [];    // [{id, term, meaning}, ...]
 
-// 테스트 상태
 let testRunning = false;
 let testMode = "mcq_t2m"; // mcq_t2m | mcq_m2t | free_m2t
-let quizOrder = [];   // 인덱스 배열
+let quizOrder = [];
 let quizIdx = 0;
 let score = 0;
 let answered = false;
 let awaitingAdvance = false;
 let advanceTimer = null;
 
-// 유틸
+/* ===================== 유틸 ===================== */
 const shuffle = (arr) => {
   const a = arr.slice();
   for (let i=a.length-1;i>0;i--){
@@ -88,7 +91,6 @@ const shuffle = (arr) => {
   }
   return a;
 };
-
 const show = (el) => el.classList.remove("hidden");
 const hide = (el) => el.classList.add("hidden");
 const setDisabled = (el, flag) => {
@@ -97,20 +99,41 @@ const setDisabled = (el, flag) => {
   if (flag) el.setAttribute("disabled", "true");
   else el.removeAttribute("disabled");
 };
+const normalize = (s) => (s || "").toString().trim().toLowerCase();
 
-// 로그인 상태
-onAuthStateChanged(auth, (user) => {
+/* ===================== 인증 ===================== */
+onAuthStateChanged(auth, async (user) => {
   if (user) {
     authSection.classList.add("hidden");
     appSection.classList.remove("hidden");
     wordsSection.classList.add("hidden");
-    userEmailEl.textContent = user.email;
+
+    // 닉네임 표시: Auth.displayName → Firestore → 이메일
+    let display = user.displayName || "";
+    if (!display) {
+      try {
+        const snap = await getDoc(doc(db, "users", user.uid));
+        if (snap.exists()) display = snap.data().nickname || "";
+      } catch {}
+    }
+    if (userDisplayEl) {
+      userDisplayEl.textContent = display || user.email;
+    } else {
+      // (구버전 index.html 대응) user-email 엘리먼트가 있을 수 있음
+      const userEmailFallback = document.getElementById("user-email");
+      if (userEmailFallback) userEmailFallback.textContent = display || user.email;
+    }
+
     startBooksLive(user.uid);
   } else {
     appSection.classList.add("hidden");
     wordsSection.classList.add("hidden");
     authSection.classList.remove("hidden");
-    userEmailEl.textContent = "";
+
+    if (userDisplayEl) userDisplayEl.textContent = "";
+    const userEmailFallback = document.getElementById("user-email");
+    if (userEmailFallback) userEmailFallback.textContent = "";
+
     bookListEl.innerHTML = "";
     wordListEl.innerHTML = "";
     if (unsubBooks) unsubBooks();
@@ -119,31 +142,50 @@ onAuthStateChanged(auth, (user) => {
   }
 });
 
-// 회원가입 / 로그인 / 로그아웃
+// 회원가입 (닉네임 저장)
 signupBtn.onclick = async () => {
+  const nickname = (nicknameEl?.value || "").trim();
+  const email = (emailEl.value || "").trim();
+  const pw = pwEl.value;
+
+  if (!nickname) return alert("닉네임을 입력해줘!");
+  if (!email) return alert("이메일을 입력해줘!");
+  if (!pw) return alert("비밀번호를 입력해줘!");
+
   try {
-    await createUserWithEmailAndPassword(auth, emailEl.value, pwEl.value);
+    const cred = await createUserWithEmailAndPassword(auth, email, pw);
+    await updateProfile(cred.user, { displayName: nickname });
+    await setDoc(doc(db, "users", cred.user.uid), {
+      nickname, email, createdAt: Date.now()
+    });
     alert("회원가입 완료!");
-  } catch (e) { alert(e.message); }
+  } catch (e) {
+    alert(e.message);
+  }
 };
+
 loginBtn.onclick = async () => {
   try {
     await signInWithEmailAndPassword(auth, emailEl.value, pwEl.value);
-  } catch (e) { alert(e.message); }
+  } catch (e) {
+    alert(e.message);
+  }
 };
+
 logoutBtn.onclick = async () => { await signOut(auth); };
 
-// 단어장 생성
+/* ===================== 단어장 CRUD ===================== */
 createBookBtn.onclick = async () => {
   const name = bookNameEl.value.trim();
   const user = auth.currentUser;
   if (!user) return alert("로그인 먼저!");
   if (!name) return alert("단어장 이름을 입력해줘!");
-  await addDoc(collection(db, "users", user.uid, "vocabBooks"), { name, createdAt: Date.now() });
+  await addDoc(collection(db, "users", user.uid, "vocabBooks"), {
+    name, createdAt: Date.now()
+  });
   bookNameEl.value = "";
 };
 
-// 단어장 목록 실시간
 function startBooksLive(uid) {
   if (unsubBooks) unsubBooks();
   const qBooks = query(collection(db, "users", uid, "vocabBooks"), orderBy("createdAt", "desc"));
@@ -160,19 +202,17 @@ function startBooksLive(uid) {
   });
 }
 
-// 단어장 열기
 function openBook(book) {
   currentBook = book;
   currentBookTitleEl.textContent = `단어장 – ${book.name}`;
   appSection.classList.add("hidden");
   wordsSection.classList.remove("hidden");
 
-  activateTab("manage"); // 기본 탭은 '수정'
+  activateTab("manage");
   startWordsLive();
   resetTestUI(true);
 }
 
-// 단어 실시간 구독 (버튼 오른쪽 정렬용 구조 적용)
 function startWordsLive() {
   const user = auth.currentUser;
   if (!user || !currentBook) return;
@@ -189,11 +229,9 @@ function startWordsLive() {
 
       const li = document.createElement("li");
 
-      // 왼쪽: 단어 라벨
       const label = document.createElement("span");
       label.textContent = `${w.term} — ${w.meaning}`;
 
-      // 오른쪽: 버튼 묶음
       const editBtn = document.createElement("button");
       editBtn.textContent = "수정";
       editBtn.onclick = async () => {
@@ -226,7 +264,6 @@ function startWordsLive() {
   });
 }
 
-// 단어 추가
 addWordBtn.onclick = async () => {
   const user = auth.currentUser;
   if (!user) return alert("로그인 먼저!");
@@ -244,7 +281,6 @@ addWordBtn.onclick = async () => {
   wordMeaningEl.value = "";
 };
 
-// 목록으로
 backToBooksBtn.onclick = () => {
   if (unsubWords) unsubWords();
   wordsSection.classList.add("hidden");
@@ -254,7 +290,7 @@ backToBooksBtn.onclick = () => {
   resetTestUI(true);
 };
 
-// 탭 전환
+/* ===================== 탭 ===================== */
 tabManageBtn.onclick = () => activateTab("manage");
 tabTestBtn.onclick   = () => activateTab("test");
 
@@ -270,7 +306,7 @@ function activateTab(which) {
   }
 }
 
-// ===== 테스트 로직 =====
+/* ===================== 테스트 로직 ===================== */
 startTestBtn.onclick = () => {
   if (!wordsCache.length) return alert("단어가 없습니다. 먼저 추가해주세요!");
   testMode = testModeSel.value; // mcq_t2m | mcq_m2t | free_m2t
@@ -300,7 +336,7 @@ submitAnswerBtn.onclick = () => {
   handleFreeSubmit();
 };
 
-// 패스 (무조건 오답 처리하고 정답 표시 → 3초 후 자동 다음)
+// 패스 (오답 처리 후 3초 대기)
 passBtn.onclick = () => {
   if (!testRunning || awaitingAdvance) return;
   const w = wordsCache[quizOrder[quizIdx]];
@@ -309,7 +345,6 @@ passBtn.onclick = () => {
   scheduleNext();
 };
 
-// 종료
 endTestBtn.onclick = () => finishTest();
 
 function resetTestUI(hideAll=false) {
@@ -343,7 +378,6 @@ function renderQuestion() {
   quizChoices.innerHTML = "";
   quizAnswerEl.value = "";
 
-  // 입력/버튼 활성화
   setDisabled(passBtn, false);
   setDisabled(quizAnswerEl, false);
 
@@ -369,21 +403,17 @@ function renderQuestion() {
   }
 }
 
-// 서술형 채점
 function handleFreeSubmit() {
   const w = wordsCache[quizOrder[quizIdx]];
-  const ans = normalize(quizAnswerEl.value);
-  const ok  = ans === normalize(w.term);
-
+  const ok  = normalize(quizAnswerEl.value) === normalize(w.term);
   answered = true;
   if (ok) score++;
   showFeedback(ok, correctTextForMode(w));
   scheduleNext();
 }
 
-// 객관식 보기 생성 (클릭=즉시 제출)
+// 객관식: 클릭=즉시 채점
 function renderChoices(correct, showField) {
-  // 정답 제외 풀에서 2개 뽑아 3지선다
   const pool = shuffle(wordsCache.filter(x => x.id !== correct.id)).slice(0, 2);
   const options = shuffle([correct, ...pool]);
 
@@ -404,7 +434,6 @@ function renderChoices(correct, showField) {
   });
 }
 
-// 피드백 표시 + 입력/버튼 잠금
 function showFeedback(ok, correctText) {
   quizFeedback.textContent = ok ? "✅ 정답!" : `❌ 오답. 정답: ${correctText}`;
   setDisabled(passBtn, true);
@@ -413,14 +442,11 @@ function showFeedback(ok, correctText) {
   [...quizChoices.children].forEach(btn => btn.onclick = null);
 }
 
-// 모드별 정답 텍스트
 function correctTextForMode(w) {
   if (testMode === "mcq_t2m") return w.meaning; // 단어→뜻
-  // 나머지 두 모드는 뜻→단어
-  return w.term;
+  return w.term; // 나머지 두 모드는 뜻→단어
 }
 
-// 3초 후 자동 다음
 function scheduleNext() {
   awaitingAdvance = true;
   if (advanceTimer) clearTimeout(advanceTimer);
@@ -441,16 +467,10 @@ function nextQuestion() {
   }
 }
 
-// 종료/결과
 function finishTest() {
   testRunning = false;
   hide(quizArea);
   const total = quizOrder.length || 0;
   testResultEl.innerHTML = `<strong>결과:</strong> ${score} / ${total} 점`;
   show(testResultEl);
-}
-
-// 단순 정규화(대소문자/양끝공백)
-function normalize(s) {
-  return (s || "").toString().trim().toLowerCase();
 }
