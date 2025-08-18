@@ -656,6 +656,7 @@ function pushHistory(wordObj, ok, userAnswerStr) {
 }
 
 // 종료/결과 (점수 표시 제거, 상세 리스트만)
+// 종료/결과 (점수 표시 제거, 상세 리스트만)
 function finishTest() {
   testRunning = false;
   clearTimers();
@@ -666,11 +667,7 @@ function finishTest() {
   // 상세 목록 생성: 맞으면 초록, 틀리면 빨강. 서술형은 사용자가 쓴 답도 표시.
   const items = testHistory.map((h, idx) => {
     const okColor = h.correct ? "var(--ok)" : "var(--bad)";
-    const modeLabel =
-      h.mode === "mcq_t2m" ? "객관식 단→뜻" :
-      h.mode === "mcq_m2t" ? "객관식 뜻→단" :
-      "서술형 뜻→단";
-    const line1 = `<div><b>${idx+1}.</b> [${modeLabel}] <code>${escapeHtml(h.term)}</code> — <em>${escapeHtml(h.meaning)}</em></div>`;
+    const line1 = `<div><b>${idx+1}.</b> <code>${escapeHtml(h.term)}</code> — <em>${escapeHtml(h.meaning)}</em></div>`;
     const userAns = h.userAnswer ? ` / 내가 쓴 답: "${escapeHtml(h.userAnswer)}"` : "";
     const line2 = `<div>결과: <span style="color:${okColor}; font-weight:600;">${h.correct ? "정답" : "오답"}</span>${userAns}</div>`;
     return `<li style="border-left:4px solid ${okColor}; padding-left:10px;">${line1}${line2}</li>`;
@@ -684,6 +681,7 @@ function finishTest() {
   `;
   show(testResultEl);
 }
+
 
 // XSS 방지용 간단 escape
 function escapeHtml(s) {
