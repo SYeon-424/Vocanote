@@ -12,7 +12,7 @@ import {
   getDocs, writeBatch
 } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore.js";
 
-console.log("app.js loaded v12");
+console.log("app.js patched v17");
 
 const auth = window.firebaseAuth;
 const db   = window.firebaseDB;
@@ -76,7 +76,6 @@ let testRunning = false;
 let testMode = "mcq_t2m"; // mcq_t2m | mcq_m2t | free_m2t
 let quizOrder = [];
 let quizIdx = 0;
-let score = 0;
 let answered = false;
 let awaitingAdvance = false;
 let advanceTimer = null;
@@ -112,6 +111,71 @@ function clearTimers() {
   if (advanceTimer) { clearTimeout(advanceTimer); advanceTimer = null; }
   if (mcqTick) { clearInterval(mcqTick); mcqTick = null; }
 }
+
+/* ===== 사운드 유틸 (Web Audio, 파일 불필요) ===== */
+let audioCtx = null;
+let soundEnabled = true;
+
+function ensureAudio() {
+  if (!soundEnabled) return;
+  if (!audioCtx) {
+    try { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); }
+    catch { soundEnabled = false; }
+  }
+}
+function beep({freq=440, ms=120, type="sine", gain=0.04}={}) {
+  if (!soundEnabled) return;
+  ensureAudio();
+  if (!audioCtx) return;
+  const t0 = audioCtx.currentTime;
+  const osc = audioCtx.createOscillator();
+  const g   = audioCtx.createGain();
+  osc.type = type;
+  osc.frequency.value = freq;
+  g.gain.value = gain;
+  osc.connect(g); g.connect(audioCtx.destination);
+  osc.start(t0);
+  g.gain.setValueAtTime(gain, t0);
+  g.gain.exponentialRampToValueAtTime(0.0001, t0 + ms/1000);
+  osc.stop(t0 + ms/1000 + 0.01);
+}
+function playSound(kind) {
+  if (!soundEnabled) return;
+  ensureAudio();
+  if (!audioCtx) return;
+  if (kind === "correct") {
+    [[660, 80],[880, 120]].forEach(([f, ms], i) => {
+      setTimeout(()=>beep({freq:f, ms, type:"sine", gain:0.05}), i?110:0);
+    });
+  } else if (kind === "wrong") {
+    [[440, 120],[330, 120]].forEach(([f, ms], i) => {
+      setTimeout(()=>beep({freq:f, ms, type:"square", gain:0.05}), i?100:0);
+    });
+  } else if (kind === "timeout") {
+    beep({freq:220, ms:160, type:"sawtooth", gain:0.06});
+  }
+}
+// 간단 음소거 토글
+(function addSoundToggle(){
+  try {
+    const btn = document.createElement("button");
+    btn.textContent = "🔊 ON";
+    btn.style.position = "fixed";
+    btn.style.right = "14px";
+    btn.style.bottom = "14px";
+    btn.style.zIndex = "999";
+    btn.style.opacity = "0.8";
+    btn.style.padding = "8px 10px";
+    btn.style.borderRadius = "10px";
+    btn.onclick = () => {
+      soundEnabled = !soundEnabled;
+      btn.textContent = soundEnabled ? "🔊 ON" : "🔇 OFF";
+      if (soundEnabled) ensureAudio();
+    };
+    document.addEventListener("pointerdown", ensureAudio, { once:true });
+    document.body.appendChild(btn);
+  } catch {}
+})();
 
 /* ===================== 인증 ===================== */
 onAuthStateChanged(auth, async (user) => {
@@ -215,13 +279,13 @@ function startBooksLive(uid) {
 
       // 오른쪽: 버튼들 (이름수정, 삭제)
       const renameBtn = document.createElement("button");
-      renameBtn.textContent = "Rename";
+      renameBtn.textContent = "이름수정";
       renameBtn.onclick = async (e) => {
         e.stopPropagation();
         const newName = prompt("새 단어장 이름", data.name);
         if (newName === null) return;
         const trimmed = newName.trim();
-        if (!trimmed) return alert("이름을 입력하세요.");
+        if (!trimmed) return alert("이름을 입력해줘!");
         try {
           await renameVocabBook(uid, d.id, trimmed);
         } catch (err) {
@@ -233,7 +297,7 @@ function startBooksLive(uid) {
       delBtn.textContent = "삭제";
       delBtn.onclick = async (e) => {
         e.stopPropagation();
-        if (!confirm(`단어장 "${data.name}"을(를) 삭제하시겠습니까?\n(안의 단어들도 함께 삭제됩니다)`)) return;
+        if (!confirm(`단어장 "${data.name}"을(를) 삭제할까요?\n(안의 단어들도 함께 삭제됩니다)`)) return;
         try {
           await deleteVocabBook(uid, d.id);
         } catch (err) {
@@ -251,6 +315,30 @@ function startBooksLive(uid) {
       bookListEl.appendChild(li);
     });
   });
+}
+
+// 단어장 이름 변경
+async function renameVocabBook(uid, bookId, newName) {
+  const bookRef = doc(db, "users", uid, "vocabBooks", bookId);
+  await updateDoc(bookRef, { name: newName });
+}
+
+// 단어장 삭제: 하위 words 모두 삭제 후 책 문서 삭제
+async function deleteVocabBook(uid, bookId) {
+  const wordsCol = collection(db, "users", uid, "vocabBooks", bookId, "words");
+  const snap = await getDocs(wordsCol);
+
+  const batch = writeBatch(db);
+  snap.forEach((docSnap) => {
+    const wRef = doc(db, "users", uid, "vocabBooks", bookId, "words", docSnap.id);
+    batch.delete(wRef);
+  });
+  if (!snap.empty) {
+    await batch.commit();
+  }
+
+  const bookRef = doc(db, "users", uid, "vocabBooks", bookId);
+  await deleteDoc(bookRef);
 }
 
 function openBook(book) {
@@ -317,12 +405,12 @@ function startWordsLive() {
 
 addWordBtn.onclick = async () => {
   const user = auth.currentUser;
-  if (!user) return alert("로그인을 해 주세요.");
-  if (!currentBook) return alert("단어장을 선택해주세요.");
+  if (!user) return alert("로그인 먼저!");
+  if (!currentBook) return alert("단어장을 먼저 선택해줘!");
 
   const term = wordTermEl.value.trim();
   const meaning = wordMeaningEl.value.trim();
-  if (!term || !meaning) return alert("단어와 뜻을 입력해주세요.");
+  if (!term || !meaning) return alert("단어와 뜻을 입력해줘!");
 
   await addDoc(collection(db, "users", user.uid, "vocabBooks", currentBook.id, "words"), {
     term, meaning, createdAt: Date.now()
@@ -367,7 +455,6 @@ startTestBtn.onclick = () => {
   }
 
   testRunning = true;
-  score = 0;
   answered = false;
   awaitingAdvance = false;
   testHistory = [];
@@ -389,20 +476,22 @@ submitAnswerBtn.onclick = () => {
   const ansNorm = normalize(quizAnswerEl.value);
   const ok = ansNorm === normalize(w.term);
   answered = true;
-  if (ok) score++;
+
   // 기록
   pushHistory(w, ok, quizAnswerEl.value);
   showFeedback(ok, correctTextForMode(w));
+  playSound(ok ? "correct" : "wrong");
   scheduleNext();
 };
 
-// 패스 (오답 처리 후 3초 대기)
+// 패스 (오답 처리 후 2초 대기)
 passBtn.onclick = () => {
   if (!testRunning || awaitingAdvance) return;
   const w = wordsCache[quizOrder[quizIdx]];
   answered = true;
-  pushHistory(w, false, "(Pass)");
+  pushHistory(w, false, "(패스)");
   showFeedback(false, correctTextForMode(w));
+  playSound("wrong");
   scheduleNext();
 };
 
@@ -410,7 +499,6 @@ endTestBtn.onclick = () => finishTest();
 
 function resetTestUI(hideAll=false) {
   testRunning = false;
-  score = 0;
   quizOrder = [];
   quizIdx = 0;
   answered = false;
@@ -430,8 +518,8 @@ function resetTestUI(hideAll=false) {
 }
 
 function updateStatus() {
-  // 진행/점수 + (MCQ일 때만) 남은 시간
-  const base = `진행: ${quizIdx+1}/${quizOrder.length} | 점수: ${score}`;
+  // 진행만 표시 (점수 제거) + MCQ 남은 시간
+  const base = `진행: ${quizIdx+1}/${quizOrder.length}`;
   if (testRunning && (testMode === "mcq_t2m" || testMode === "mcq_m2t") && mcqRemain > 0 && !answered) {
     testStatusEl.textContent = `${base} | 남은 시간: ${mcqRemain}s`;
   } else {
@@ -454,20 +542,20 @@ function renderQuestion() {
 
   if (testMode === "free_m2t") {
     // 서술형: 뜻 -> 단어(스펠링)
-    quizQ.textContent = `단어를 입력하세요: ${w.meaning}`;
+    quizQ.textContent = `단어를 쓰세요 (뜻): ${w.meaning}`;
     show(quizFreeBox); hide(quizChoices);
     show(submitAnswerBtn);       // 서술형은 제출 버튼 사용
     updateStatus();
   } else if (testMode === "mcq_t2m") {
     // 객관식: 단어 -> 뜻 (3지선다)
-    quizQ.textContent = `정답을 선택하세요: ${w.term}`;
+    quizQ.textContent = `정답을 고르세요 (단어 → 뜻): ${w.term}`;
     hide(quizFreeBox); show(quizChoices);
     hide(submitAnswerBtn);       // MCQ는 제출 버튼 숨김
     renderChoices(w, "meaning");
     startMcqTimer(w);
   } else {
     // mcq_m2t: 뜻 -> 단어 (3지선다)
-    quizQ.textContent = `정답을 선택하세요: ${w.meaning}`;
+    quizQ.textContent = `정답을 고르세요 (뜻 → 단어): ${w.meaning}`;
     hide(quizFreeBox); show(quizChoices);
     hide(submitAnswerBtn);       // MCQ는 제출 버튼 숨김
     renderChoices(w, "term");
@@ -491,6 +579,7 @@ function startMcqTimer(w) {
         answered = true;
         pushHistory(w, false, "(시간초과)");
         showFeedback(false, correctTextForMode(w));
+        playSound("timeout");
         scheduleNext();
       }
     }
@@ -510,10 +599,10 @@ function renderChoices(correct, showField) {
       if (answered || awaitingAdvance) return;
       answered = true;
       const ok = opt.id === correct.id;
-      if (ok) score++;
       // 사용자가 선택한 보기 텍스트 기록
       pushHistory(correct, ok, b.textContent);
       showFeedback(ok, correctTextForMode(correct));
+      playSound(ok ? "correct" : "wrong");
       scheduleNext();
     };
 
@@ -534,13 +623,14 @@ function correctTextForMode(w) {
   return w.term; // 나머지 두 모드는 뜻→단어
 }
 
+// 자동 다음: 2초
 function scheduleNext() {
   awaitingAdvance = true;
   if (advanceTimer) clearTimeout(advanceTimer);
   advanceTimer = setTimeout(() => {
     advanceTimer = null;
     nextQuestion();
-  }, 3000);
+  }, 2000);
 }
 
 function nextQuestion() {
@@ -565,25 +655,22 @@ function pushHistory(wordObj, ok, userAnswerStr) {
   });
 }
 
-// 종료/결과
+// 종료/결과 (점수 표시 제거, 상세 리스트만)
 function finishTest() {
   testRunning = false;
   clearTimers();
   hide(quizArea);
 
-  const total = quizOrder.length || 0;
-  const header = `<strong>결과:</strong> ${score} / ${total} 점`;
+  const header = `<strong>결과:</strong>`;
 
-  // 상세 목록 생성
-  // 맞으면 초록, 틀리면 빨강. 서술형은 사용자가 쓴 답도 표시.
+  // 상세 목록 생성: 맞으면 초록, 틀리면 빨강. 서술형은 사용자가 쓴 답도 표시.
   const items = testHistory.map((h, idx) => {
     const okColor = h.correct ? "var(--ok)" : "var(--bad)";
     const modeLabel =
-      h.mode === "mcq_t2m" ? "" :
-      h.mode === "mcq_m2t" ? "" :
-      "";
+      h.mode === "mcq_t2m" ? "객관식 단→뜻" :
+      h.mode === "mcq_m2t" ? "객관식 뜻→단" :
+      "서술형 뜻→단";
     const line1 = `<div><b>${idx+1}.</b> [${modeLabel}] <code>${escapeHtml(h.term)}</code> — <em>${escapeHtml(h.meaning)}</em></div>`;
-    // 서술형은 사용자가 입력한 답 표기, MCQ는 사용자가 고른 보기(또는 패스/시간초과)
     const userAns = h.userAnswer ? ` / 내가 쓴 답: "${escapeHtml(h.userAnswer)}"` : "";
     const line2 = `<div>결과: <span style="color:${okColor}; font-weight:600;">${h.correct ? "정답" : "오답"}</span>${userAns}</div>`;
     return `<li style="border-left:4px solid ${okColor}; padding-left:10px;">${line1}${line2}</li>`;
@@ -597,31 +684,6 @@ function finishTest() {
   `;
   show(testResultEl);
 }
-
-// 단어장 이름 변경
-async function renameVocabBook(uid, bookId, newName) {
-  const bookRef = doc(db, "users", uid, "vocabBooks", bookId);
-  await updateDoc(bookRef, { name: newName });
-}
-
-// 단어장 삭제: 하위 words 모두 삭제 후 책 문서 삭제
-async function deleteVocabBook(uid, bookId) {
-  const wordsCol = collection(db, "users", uid, "vocabBooks", bookId, "words");
-  const snap = await getDocs(wordsCol);
-
-  const batch = writeBatch(db);
-  snap.forEach((docSnap) => {
-    const wRef = doc(db, "users", uid, "vocabBooks", bookId, "words", docSnap.id);
-    batch.delete(wRef);
-  });
-  if (!snap.empty) {
-    await batch.commit();
-  }
-
-  const bookRef = doc(db, "users", uid, "vocabBooks", bookId);
-  await deleteDoc(bookRef);
-}
-
 
 // XSS 방지용 간단 escape
 function escapeHtml(s) {
