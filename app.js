@@ -22,7 +22,6 @@ const authSection = document.getElementById("auth-section");
 const appSection  = document.getElementById("app-section");
 const wordsSection = document.getElementById("words-section");
 
-// 인증/유저 표기
 const userDisplayEl = document.getElementById("user-display");   // index.html v10 이상
 const nicknameEl = document.getElementById("nickname");          // index.html v10 이상
 const emailEl = document.getElementById("email");
@@ -216,13 +215,13 @@ function startBooksLive(uid) {
 
       // 오른쪽: 버튼들 (이름수정, 삭제)
       const renameBtn = document.createElement("button");
-      renameBtn.textContent = "이름수정";
+      renameBtn.textContent = "Rename";
       renameBtn.onclick = async (e) => {
         e.stopPropagation();
         const newName = prompt("새 단어장 이름", data.name);
         if (newName === null) return;
         const trimmed = newName.trim();
-        if (!trimmed) return alert("이름을 입력해줘!");
+        if (!trimmed) return alert("이름을 입력하세요.");
         try {
           await renameVocabBook(uid, d.id, trimmed);
         } catch (err) {
@@ -234,7 +233,7 @@ function startBooksLive(uid) {
       delBtn.textContent = "삭제";
       delBtn.onclick = async (e) => {
         e.stopPropagation();
-        if (!confirm(`단어장 "${data.name}"을(를) 삭제할까요?\n(안의 단어들도 함께 삭제됩니다)`)) return;
+        if (!confirm(`단어장 "${data.name}"을(를) 삭제하시겠습니까?\n(안의 단어들도 함께 삭제됩니다)`)) return;
         try {
           await deleteVocabBook(uid, d.id);
         } catch (err) {
@@ -318,12 +317,12 @@ function startWordsLive() {
 
 addWordBtn.onclick = async () => {
   const user = auth.currentUser;
-  if (!user) return alert("로그인 먼저!");
-  if (!currentBook) return alert("단어장을 먼저 선택해줘!");
+  if (!user) return alert("로그인을 해 주세요.");
+  if (!currentBook) return alert("단어장을 선택해주세요.");
 
   const term = wordTermEl.value.trim();
   const meaning = wordMeaningEl.value.trim();
-  if (!term || !meaning) return alert("단어와 뜻을 입력해줘!");
+  if (!term || !meaning) return alert("단어와 뜻을 입력해주세요.");
 
   await addDoc(collection(db, "users", user.uid, "vocabBooks", currentBook.id, "words"), {
     term, meaning, createdAt: Date.now()
@@ -360,11 +359,11 @@ function activateTab(which) {
 
 /* ===================== 테스트 로직 ===================== */
 startTestBtn.onclick = () => {
-  if (!wordsCache.length) return alert("단어가 없습니다. 먼저 추가해주세요!");
+  if (!wordsCache.length) return alert("단어가 없습니다. 단어를 먼저 추가해주세요.");
   testMode = testModeSel.value; // mcq_t2m | mcq_m2t | free_m2t
 
   if ((testMode === "mcq_t2m" || testMode === "mcq_m2t") && wordsCache.length < 3) {
-    return alert("객관식은 최소 3개 단어가 필요해요.");
+    return alert("객관식은 최소 3개 단어가 필요합니다.");
   }
 
   testRunning = true;
@@ -402,7 +401,7 @@ passBtn.onclick = () => {
   if (!testRunning || awaitingAdvance) return;
   const w = wordsCache[quizOrder[quizIdx]];
   answered = true;
-  pushHistory(w, false, "(패스)");
+  pushHistory(w, false, "(Pass)");
   showFeedback(false, correctTextForMode(w));
   scheduleNext();
 };
@@ -455,20 +454,20 @@ function renderQuestion() {
 
   if (testMode === "free_m2t") {
     // 서술형: 뜻 -> 단어(스펠링)
-    quizQ.textContent = `단어를 쓰세요 (뜻): ${w.meaning}`;
+    quizQ.textContent = `단어를 입력하세요: ${w.meaning}`;
     show(quizFreeBox); hide(quizChoices);
     show(submitAnswerBtn);       // 서술형은 제출 버튼 사용
     updateStatus();
   } else if (testMode === "mcq_t2m") {
     // 객관식: 단어 -> 뜻 (3지선다)
-    quizQ.textContent = `정답을 고르세요 (단어 → 뜻): ${w.term}`;
+    quizQ.textContent = `정답을 선택하세요: ${w.term}`;
     hide(quizFreeBox); show(quizChoices);
     hide(submitAnswerBtn);       // MCQ는 제출 버튼 숨김
     renderChoices(w, "meaning");
     startMcqTimer(w);
   } else {
     // mcq_m2t: 뜻 -> 단어 (3지선다)
-    quizQ.textContent = `정답을 고르세요 (뜻 → 단어): ${w.meaning}`;
+    quizQ.textContent = `정답을 선택하세요: ${w.meaning}`;
     hide(quizFreeBox); show(quizChoices);
     hide(submitAnswerBtn);       // MCQ는 제출 버튼 숨김
     renderChoices(w, "term");
@@ -580,7 +579,7 @@ function finishTest() {
   const items = testHistory.map((h, idx) => {
     const okColor = h.correct ? "var(--ok)" : "var(--bad)";
     const modeLabel =
-      h.mode === "mcq_t2m" ? "객관식 단→뜻" :
+      h.mode === "mcq_t2m" ? "객관식 단→뜻............." :
       h.mode === "mcq_m2t" ? "객관식 뜻→단" :
       "서술형 뜻→단";
     const line1 = `<div><b>${idx+1}.</b> [${modeLabel}] <code>${escapeHtml(h.term)}</code> — <em>${escapeHtml(h.meaning)}</em></div>`;
