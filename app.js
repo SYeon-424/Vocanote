@@ -10,7 +10,7 @@ import {
   doc, deleteDoc, updateDoc
 } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore.js";
 
-console.log("app.js loaded v8");
+console.log("app.js loaded v9");
 
 const auth = window.firebaseAuth;
 const db   = window.firebaseDB;
@@ -172,7 +172,7 @@ function openBook(book) {
   resetTestUI(true);
 }
 
-// 단어 실시간 구독
+// 단어 실시간 구독 (버튼 오른쪽 정렬용 구조 적용)
 function startWordsLive() {
   const user = auth.currentUser;
   if (!user || !currentBook) return;
@@ -188,9 +188,12 @@ function startWordsLive() {
       wordsCache.push(w);
 
       const li = document.createElement("li");
+
+      // 왼쪽: 단어 라벨
       const label = document.createElement("span");
       label.textContent = `${w.term} — ${w.meaning}`;
 
+      // 오른쪽: 버튼 묶음
       const editBtn = document.createElement("button");
       editBtn.textContent = "수정";
       editBtn.onclick = async () => {
@@ -211,9 +214,13 @@ function startWordsLive() {
         await deleteDoc(doc(db, "users", user.uid, "vocabBooks", currentBook.id, "words", w.id));
       };
 
+      const btnWrap = document.createElement("div");
+      btnWrap.className = "btn-wrap";
+      btnWrap.appendChild(editBtn);
+      btnWrap.appendChild(delBtn);
+
       li.appendChild(label);
-      li.appendChild(editBtn);
-      li.appendChild(delBtn);
+      li.appendChild(btnWrap);
       wordListEl.appendChild(li);
     });
   });
