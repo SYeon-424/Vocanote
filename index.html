@@ -9,17 +9,17 @@
   <link rel="manifest" href="./manifest.webmanifest" />
   <meta name="theme-color" content="#111111" />
 
-  <!-- 간단 스타일 -->
+  <!-- 스타일 (선택) -->
   <link rel="stylesheet" href="./styles.css" />
 
-  <!-- Firebase (CDN, 모듈 버전) -->
+  <!-- Firebase/CDN 초기화 + 앱 로드 -->
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-app.js";
-    import { getAuth, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-auth.js";
+    import { getAuth } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-auth.js";
     import { getFirestore } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore.js";
     import { firebaseConfig } from "./firebase-init.js";
 
-    // 전역 초기화 (app.js에서 재사용)
+    // Firebase 전역 초기화 (app.js에서 재사용)
     window.firebaseApp = initializeApp(firebaseConfig);
     window.firebaseAuth = getAuth(window.firebaseApp);
     window.firebaseDB = getFirestore(window.firebaseApp);
@@ -29,7 +29,7 @@
       navigator.serviceWorker.register("./service-worker.js");
     }
 
-    // 앱 시작
+    // 앱 시작 (이 파일들 꼭 루트에 있어야 함)
     import("./app.js");
   </script>
 </head>
@@ -47,7 +47,7 @@
       </div>
     </section>
 
-    <!-- 로그인 후 UI -->
+    <!-- 로그인 후: 단어장 목록 -->
     <section id="app-section" class="hidden">
       <div class="row space">
         <div>👤 <span id="user-email"></span></div>
@@ -63,6 +63,22 @@
       </div>
 
       <ul id="book-list"></ul>
+    </section>
+
+    <!-- 단어 관리 화면 (책 클릭 시 표시) -->
+    <section id="words-section" class="hidden">
+      <div class="row space">
+        <button id="back-to-books">← 단어장 목록으로</button>
+        <h2 id="current-book-title">단어 관리</h2>
+      </div>
+
+      <div class="row">
+        <input id="word-term" placeholder="단어 (term)" />
+        <input id="word-meaning" placeholder="뜻 (meaning)" />
+        <button id="add-word">+ 추가</button>
+      </div>
+
+      <ul id="word-list"></ul>
     </section>
   </main>
 </body>
