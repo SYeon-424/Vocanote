@@ -12,7 +12,7 @@ import {
   getDocs, writeBatch, where
 } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore.js";
 
-console.log("app.js v22");
+console.log("app.js v23");
 
 const auth = window.firebaseAuth;
 const db   = window.firebaseDB;
@@ -79,10 +79,10 @@ const groupInviteCodeEl = document.getElementById("group-invite-code");
 const leaveGroupBtn = document.getElementById("leave-group");
 const groupMembersEl = document.getElementById("group-members");
 
-// 그룹 단어장 업로드/목록
+/* 그룹 단어장: 내 단어장에서 가져오기 */
+const importSourceSel = document.getElementById("import-source-book");
 const gBookNameEl = document.getElementById("gbook-name");
-const gBookFileEl = document.getElementById("gbook-file");
-const gBookUploadBtn = document.getElementById("gbook-upload");
+const gBookImportBtn = document.getElementById("gbook-import");
 const gBookListEl = document.getElementById("gbook-list");
 
 // 그룹 단어장 화면
@@ -121,6 +121,7 @@ let unsubBooks = null;
 let unsubWords = null;
 let currentBook = null;
 let wordsCache = [];
+let myBooksCache = []; // 그룹 업로드용(내 단어장 선택)
 
 let testRunning = false;
 let testMode = "mcq_t2m";
@@ -157,7 +158,6 @@ const show = (el) => el.classList.remove("hidden");
 const hide = (el) => el.classList.add("hidden");
 const setDisabled = (el, flag) => { if (!el) return; el.disabled = flag; if (flag) el.setAttribute("disabled","true"); else el.removeAttribute("disabled"); };
 const normalize = (s) => (s || "").toString().trim().toLowerCase();
-
 function clearTimers() { if (advanceTimer){clearTimeout(advanceTimer); advanceTimer=null;} if (mcqTick){clearInterval(mcqTick); mcqTick=null;} }
 
 /* ===== 사운드 (Web Audio) ===== */
@@ -198,6 +198,7 @@ onAuthStateChanged(auth, async (user) => {
     bookListEl.innerHTML = ""; wordListEl.innerHTML = "";
     myGroupListEl.innerHTML = ""; groupMembersEl.innerHTML = "";
     gBookListEl.innerHTML = ""; gWordListEl.innerHTML = "";
+    importSourceSel.innerHTML = `<option value="">내 단어장을 선택하세요</option>`;
     if (unsubBooks) unsubBooks();
     if (unsubWords) unsubWords();
     if (unsubMyGroups) unsubMyGroups();
@@ -239,10 +240,16 @@ createBookBtn.onclick = async () => {
 function startBooksLive(uid) {
   if (unsubBooks) unsubBooks();
   const qBooks = query(collection(db, "users", uid, "vocabBooks"), orderBy("createdAt", "desc"));
-  unsubBooks = onSnapshot(qBooks, (snap) => {
+  unsubBooks = onSnapshot(qBooks, async (snap) => {
     bookListEl.innerHTML = "";
+    myBooksCache = [];
+    importSourceSel.innerHTML = `<option value="">내 단어장을 선택하세요</option>`;
+
     snap.forEach((d) => {
       const data = d.data();
+      myBooksCache.push({ id: d.id, name: data.name });
+
+      // 홈 화면 리스트
       const li = document.createElement("li");
 
       const label = document.createElement("span");
@@ -266,7 +273,6 @@ function startBooksLive(uid) {
       delBtn.onclick = async (e) => {
         e.stopPropagation();
         if (!confirm(`단어장 "${data.name}"을(를) 삭제할까요?\n(안의 단어들도 함께 삭제됩니다)`)) return;
-        // 단어 모두 삭제 후 책 삭제
         const wSnap = await getDocs(collection(db, "users", uid, "vocabBooks", d.id, "words"));
         const batch = writeBatch(db);
         wSnap.forEach(ws => batch.delete(doc(db, "users", uid, "vocabBooks", d.id, "words", ws.id)));
@@ -281,10 +287,16 @@ function startBooksLive(uid) {
 
       li.appendChild(label);
       li.appendChild(btnWrap);
-      // 행 전체 클릭도 열기
       li.onclick = () => openBook({ id: d.id, name: data.name });
-
       bookListEl.appendChild(li);
+    });
+
+    // 그룹 상세에서 쓸 "내 단어장 선택" 드롭다운도 채워둠
+    myBooksCache.forEach(b => {
+      const opt = document.createElement("option");
+      opt.value = b.id;
+      opt.textContent = b.name;
+      importSourceSel.appendChild(opt);
     });
   });
 }
@@ -600,6 +612,8 @@ function openGroup(g) {
 
   startMembersLive(g.id);
   startGBooksLive(g.id); // 그룹 단어장 목록
+  // 내 단어장 드롭다운 최신화 (startBooksLive에서 채워두지만, 혹시 늦게 열렸을 경우 대비)
+  refreshImportSourceSelect();
 }
 function startMembersLive(gid) {
   if (unsubGroupMembers) unsubGroupMembers();
@@ -663,7 +677,9 @@ async function deleteGroup(groupId, ownerUid) {
   await deleteDoc(doc(db, "groups", groupId));
 }
 
-/* ===================== 그룹 단어장 업로드/목록 ===================== */
+/* ===================== 그룹 단어장 (내 단어장에서 가져오기) ===================== */
+
+// 그룹 단어장 목록
 function startGBooksLive(gid) {
   if (unsubGBooks) unsubGBooks();
   const qBooks = query(collection(db, "groups", gid, "vocabBooks"), orderBy("createdAt","desc"));
@@ -716,36 +732,61 @@ function startGBooksLive(gid) {
   });
 }
 
-// CSV 업로드 → 새 그룹 단어장 + 단어 일괄 추가(ownerId=본인)
-gBookUploadBtn.onclick = async () => {
+// 드롭다운 갱신 (혹시 늦게 로드된 경우)
+function refreshImportSourceSelect(){
+  importSourceSel.innerHTML = `<option value="">내 단어장을 선택하세요</option>`;
+  myBooksCache.forEach(b => {
+    const opt = document.createElement("option");
+    opt.value = b.id; opt.textContent = b.name;
+    importSourceSel.appendChild(opt);
+  });
+}
+
+// "내 단어장에서 가져오기" 버튼
+gBookImportBtn.onclick = async () => {
   const user = auth.currentUser;
   if (!user) return alert("로그인 먼저!");
   if (!currentGroup) return alert("그룹을 먼저 열어줘!");
 
-  const name = (gBookNameEl.value || "").trim() || (gBookFileEl.files?.[0]?.name || "").replace(/\.[^.]+$/,'');
-  if (!name) return alert("단어장 이름 또는 파일을 선택해줘!");
+  const sourceBookId = importSourceSel.value;
+  if (!sourceBookId) return alert("가져올 '내 단어장'을 선택해줘!");
 
-  const file = gBookFileEl.files?.[0];
-  if (!file) return alert("CSV 파일을 선택해줘!");
+  // 소스 단어장 이름/단어들 조회
+  const srcBookRef = doc(db, "users", user.uid, "vocabBooks", sourceBookId);
+  const srcBookSnap = await getDoc(srcBookRef);
+  if (!srcBookSnap.exists()) return alert("해당 단어장을 찾을 수 없어요.");
 
-  const text = await file.text();
-  const rows = parseCSV(text); // [ [term, meaning], ... ]
-  if (!rows.length) return alert("추가할 단어가 없습니다.");
+  const srcName = (gBookNameEl.value || "").trim() || (srcBookSnap.data().name || "복사한 단어장");
 
-  const bookRef = await addDoc(collection(db, "groups", currentGroup.id, "vocabBooks"), { name, ownerId: user.uid, createdAt: Date.now() });
+  const srcWordsSnap = await getDocs(collection(db, "users", user.uid, "vocabBooks", sourceBookId, "words"));
+  if (srcWordsSnap.empty) return alert("가져올 단어가 없습니다.");
 
-  const chunks = chunk(rows, 400);
+  // 그룹에 새 책 생성 (ownerId=나)
+  const newBookRef = await addDoc(collection(db, "groups", currentGroup.id, "vocabBooks"), {
+    name: srcName, ownerId: user.uid, createdAt: Date.now()
+  });
+
+  // 단어 일괄 복사
+  const words = srcWordsSnap.docs.map(d => d.data());
+  const chunks = chunk(words, 400);
   for (const part of chunks) {
     const batch = writeBatch(db);
-    part.forEach(([term, meaning]) => {
-      const ref = doc(collection(db, "groups", currentGroup.id, "vocabBooks", bookRef.id, "words"));
-      batch.set(ref, { term:(term||"").trim(), meaning:(meaning||"").trim(), ownerId:user.uid, createdAt: Date.now() });
+    part.forEach(w => {
+      const ref = doc(collection(db, "groups", currentGroup.id, "vocabBooks", newBookRef.id, "words"));
+      batch.set(ref, {
+        term: (w.term||"").trim(),
+        meaning: (w.meaning||"").trim(),
+        ownerId: user.uid,
+        createdAt: Date.now()
+      });
     });
     await batch.commit();
   }
 
-  gBookNameEl.value = ""; gBookFileEl.value = "";
-  openGBook(currentGroup.id, { id: bookRef.id, name, ownerId: user.uid });
+  gBookNameEl.value = "";
+  importSourceSel.value = "";
+
+  openGBook(currentGroup.id, { id: newBookRef.id, name: srcName, ownerId: user.uid });
 };
 
 function openGBook(gid, b) {
@@ -894,22 +935,5 @@ function gFinish(){
   show(gTestResultEl);
 }
 
-/* ===================== CSV & 기타 유틸 ===================== */
-function parseCSV(text){
-  const rows=[]; let i=0, s=text.replace(/\r\n/g,"\n").replace(/\r/g,"\n");
-  while(i<s.length){
-    const row=[];
-    while(true){
-      if(i>=s.length||s[i]==="\n"){ if(i<s.length&&s[i]==="\n") i++; break; }
-      let val="";
-      if(s[i]==='"'){ i++; while(i<s.length){ if(s[i]==='"'&&s[i+1]==='"'){ val+='"'; i+=2; continue; } if(s[i]==='"'){ i++; break; } val+=s[i++]; } if(s[i]===",") i++; else if(s[i]==="\n"){ i++; } }
-      else { while(i<s.length && s[i]!=="," && s[i]!=="\n") val+=s[i++]; if(s[i]===",") i++; else if(s[i]==="\n"){ i++; } }
-      row.push(val.trim());
-      if(s[i-1]==="\n") break;
-      if(i>=s.length||s[i]==="\n"){ if(s[i]==="\n") i++; break; }
-    }
-    if(row.length && (row[0]||row[1])){ if(row.length===1) row.push(""); rows.push([row[0],row[1]]); }
-  }
-  return rows;
-}
+/* ===================== 기타 유틸 ===================== */
 function chunk(arr,n){ const out=[]; for(let i=0;i<arr.length;i+=n) out.push(arr.slice(i,i+n)); return out; }
