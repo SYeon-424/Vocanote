@@ -11,6 +11,19 @@
 
   <!-- 스타일 (선택) -->
   <link rel="stylesheet" href="./styles.css" />
+  <style>
+    /* 최소 스타일 (styles.css 없을 때 대비) */
+    :root { color-scheme: light dark; }
+    body { font-family: system-ui, apple-system, sans-serif; margin:0; }
+    .container { max-width: 720px; margin: 24px auto; padding: 0 16px; }
+    .hidden { display: none; }
+    .row { display:flex; gap:8px; align-items:center; }
+    .space { justify-content: space-between; }
+    input, button, select { padding:10px 12px; font-size:16px; }
+    ul { padding-left: 18px; }
+    .tab { padding:8px 12px; border:1px solid #8884; border-radius:8px; }
+    .tab.active { font-weight:700; text-decoration: underline; }
+  </style>
 
   <!-- Firebase/CDN 초기화 + 앱 로드 -->
   <script type="module">
@@ -29,7 +42,7 @@
       navigator.serviceWorker.register("./service-worker.js");
     }
 
-    // 앱 시작 (이 파일들 꼭 루트에 있어야 함)
+    // 앱 시작
     import("./app.js");
   </script>
 </head>
@@ -72,13 +85,58 @@
         <h2 id="current-book-title">단어 관리</h2>
       </div>
 
-      <div class="row">
-        <input id="word-term" placeholder="단어 (term)" />
-        <input id="word-meaning" placeholder="뜻 (meaning)" />
-        <button id="add-word">+ 추가</button>
+      <!-- 탭 -->
+      <div class="row" style="gap:12px; margin:8px 0 16px;">
+        <button id="tab-manage" class="tab active">수정</button>
+        <button id="tab-test" class="tab">테스트</button>
       </div>
 
-      <ul id="word-list"></ul>
+      <!-- 관리 탭 -->
+      <div id="manage-pane">
+        <div class="row">
+          <input id="word-term" placeholder="단어 (term)" />
+          <input id="word-meaning" placeholder="뜻 (meaning)" />
+          <button id="add-word">+ 추가</button>
+        </div>
+        <ul id="word-list"></ul>
+      </div>
+
+      <!-- 테스트 탭 -->
+      <div id="test-pane" class="hidden">
+        <div class="row" style="gap:8px; flex-wrap:wrap;">
+          <label>모드:
+            <select id="test-mode">
+              <option value="t2m">단어 → 뜻</option>
+              <option value="m2t">뜻 → 단어</option>
+              <option value="mcq">객관식(4지선다)</option>
+            </select>
+          </label>
+          <button id="start-test">테스트 시작</button>
+          <div id="test-status"></div>
+        </div>
+
+        <div id="quiz-area" class="hidden" style="margin-top:12px;">
+          <div id="quiz-q" style="font-size:18px; margin-bottom:8px;"></div>
+
+          <!-- 주관식 입력 -->
+          <div id="quiz-free">
+            <input id="quiz-answer" placeholder="답 입력" />
+            <button id="submit-answer">제출</button>
+          </div>
+
+          <!-- 객관식 버튼 -->
+          <div id="quiz-choices" class="hidden" style="display:flex; gap:8px; flex-wrap:wrap; margin-top:8px;"></div>
+
+          <div id="quiz-feedback" style="margin-top:8px;"></div>
+
+          <div class="row" style="margin-top:12px;">
+            <button id="next-question">다음</button>
+            <button id="end-test">종료</button>
+          </div>
+        </div>
+
+        <div id="test-result" class="hidden" style="margin-top:12px;"></div>
+      </div>
     </section>
   </main>
 </body>
