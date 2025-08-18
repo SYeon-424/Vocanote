@@ -11,13 +11,12 @@ import {
   doc, deleteDoc, updateDoc, setDoc, getDoc
 } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore.js";
 
-console.log("app.js loaded v11");
+console.log("app.js loaded v12");
 
 const auth = window.firebaseAuth;
 const db   = window.firebaseDB;
 
 /* ===================== DOM ===================== */
-// 공용
 const authSection = document.getElementById("auth-section");
 const appSection  = document.getElementById("app-section");
 const wordsSection = document.getElementById("words-section");
@@ -82,6 +81,14 @@ let answered = false;
 let awaitingAdvance = false;
 let advanceTimer = null;
 
+// MCQ 타이머
+let mcqRemain = 0;
+let mcqTick = null;
+
+// 결과 요약 히스토리
+// {term, meaning, mode, correct, userAnswer}
+let testHistory = [];
+
 /* ===================== 유틸 ===================== */
 const shuffle = (arr) => {
   const a = arr.slice();
@@ -101,6 +108,11 @@ const setDisabled = (el, flag) => {
 };
 const normalize = (s) => (s || "").toString().trim().toLowerCase();
 
+function clearTimers() {
+  if (advanceTimer) { clearTimeout(advanceTimer); advanceTimer = null; }
+  if (mcqTick) { clearInterval(mcqTick); mcqTick = null; }
+}
+
 /* ===================== 인증 ===================== */
 onAuthStateChanged(auth, async (user) => {
   if (user) {
@@ -119,7 +131,6 @@ onAuthStateChanged(auth, async (user) => {
     if (userDisplayEl) {
       userDisplayEl.textContent = display || user.email;
     } else {
-      // (구버전 index.html 대응) user-email 엘리먼트가 있을 수 있음
       const userEmailFallback = document.getElementById("user-email");
       if (userEmailFallback) userEmailFallback.textContent = display || user.email;
     }
@@ -319,6 +330,7 @@ startTestBtn.onclick = () => {
   score = 0;
   answered = false;
   awaitingAdvance = false;
+  testHistory = [];
   quizOrder = shuffle(wordsCache.map((_, i) => i));
   quizIdx = 0;
 
@@ -333,7 +345,15 @@ startTestBtn.onclick = () => {
 submitAnswerBtn.onclick = () => {
   if (!testRunning || answered || awaitingAdvance) return;
   if (testMode !== "free_m2t") return; // 서술형 전용
-  handleFreeSubmit();
+  const w = wordsCache[quizOrder[quizIdx]];
+  const ansNorm = normalize(quizAnswerEl.value);
+  const ok = ansNorm === normalize(w.term);
+  answered = true;
+  if (ok) score++;
+  // 기록
+  pushHistory(w, ok, quizAnswerEl.value);
+  showFeedback(ok, correctTextForMode(w));
+  scheduleNext();
 };
 
 // 패스 (오답 처리 후 3초 대기)
@@ -341,6 +361,7 @@ passBtn.onclick = () => {
   if (!testRunning || awaitingAdvance) return;
   const w = wordsCache[quizOrder[quizIdx]];
   answered = true;
+  pushHistory(w, false, "(패스)");
   showFeedback(false, correctTextForMode(w));
   scheduleNext();
 };
@@ -354,7 +375,8 @@ function resetTestUI(hideAll=false) {
   quizIdx = 0;
   answered = false;
   awaitingAdvance = false;
-  if (advanceTimer) { clearTimeout(advanceTimer); advanceTimer = null; }
+  testHistory = [];
+  clearTimers();
 
   quizQ.textContent = "";
   quizFeedback.textContent = "";
@@ -368,7 +390,13 @@ function resetTestUI(hideAll=false) {
 }
 
 function updateStatus() {
-  testStatusEl.textContent = `진행: ${quizIdx+1}/${quizOrder.length} | 점수: ${score}`;
+  // 진행/점수 + (MCQ일 때만) 남은 시간
+  const base = `진행: ${quizIdx+1}/${quizOrder.length} | 점수: ${score}`;
+  if (testRunning && (testMode === "mcq_t2m" || testMode === "mcq_m2t") && mcqRemain > 0 && !answered) {
+    testStatusEl.textContent = `${base} | 남은 시간: ${mcqRemain}s`;
+  } else {
+    testStatusEl.textContent = base;
+  }
 }
 
 function renderQuestion() {
@@ -377,6 +405,7 @@ function renderQuestion() {
   quizFeedback.textContent = "";
   quizChoices.innerHTML = "";
   quizAnswerEl.value = "";
+  clearTimers();
 
   setDisabled(passBtn, false);
   setDisabled(quizAnswerEl, false);
@@ -388,28 +417,44 @@ function renderQuestion() {
     quizQ.textContent = `단어를 쓰세요 (뜻): ${w.meaning}`;
     show(quizFreeBox); hide(quizChoices);
     show(submitAnswerBtn);       // 서술형은 제출 버튼 사용
+    updateStatus();
   } else if (testMode === "mcq_t2m") {
     // 객관식: 단어 -> 뜻 (3지선다)
     quizQ.textContent = `정답을 고르세요 (단어 → 뜻): ${w.term}`;
     hide(quizFreeBox); show(quizChoices);
     hide(submitAnswerBtn);       // MCQ는 제출 버튼 숨김
     renderChoices(w, "meaning");
+    startMcqTimer(w);
   } else {
     // mcq_m2t: 뜻 -> 단어 (3지선다)
     quizQ.textContent = `정답을 고르세요 (뜻 → 단어): ${w.meaning}`;
     hide(quizFreeBox); show(quizChoices);
     hide(submitAnswerBtn);       // MCQ는 제출 버튼 숨김
     renderChoices(w, "term");
+    startMcqTimer(w);
   }
 }
 
-function handleFreeSubmit() {
-  const w = wordsCache[quizOrder[quizIdx]];
-  const ok  = normalize(quizAnswerEl.value) === normalize(w.term);
-  answered = true;
-  if (ok) score++;
-  showFeedback(ok, correctTextForMode(w));
-  scheduleNext();
+// MCQ 타이머 10초
+function startMcqTimer(w) {
+  mcqRemain = 10;
+  updateStatus();
+  mcqTick = setInterval(() => {
+    if (!testRunning) { clearInterval(mcqTick); mcqTick = null; return; }
+    if (answered) { clearInterval(mcqTick); mcqTick = null; return; }
+    mcqRemain -= 1;
+    updateStatus();
+    if (mcqRemain <= 0) {
+      clearInterval(mcqTick); mcqTick = null;
+      // 시간초과 → 오답 처리
+      if (!answered && !awaitingAdvance) {
+        answered = true;
+        pushHistory(w, false, "(시간초과)");
+        showFeedback(false, correctTextForMode(w));
+        scheduleNext();
+      }
+    }
+  }, 1000);
 }
 
 // 객관식: 클릭=즉시 채점
@@ -426,6 +471,8 @@ function renderChoices(correct, showField) {
       answered = true;
       const ok = opt.id === correct.id;
       if (ok) score++;
+      // 사용자가 선택한 보기 텍스트 기록
+      pushHistory(correct, ok, b.textContent);
       showFeedback(ok, correctTextForMode(correct));
       scheduleNext();
     };
@@ -467,10 +514,56 @@ function nextQuestion() {
   }
 }
 
+// 히스토리 저장
+function pushHistory(wordObj, ok, userAnswerStr) {
+  testHistory.push({
+    term: wordObj.term,
+    meaning: wordObj.meaning,
+    mode: testMode, // 해당 문제의 모드
+    correct: !!ok,
+    userAnswer: (userAnswerStr ?? "").toString()
+  });
+}
+
+// 종료/결과
 function finishTest() {
   testRunning = false;
+  clearTimers();
   hide(quizArea);
+
   const total = quizOrder.length || 0;
-  testResultEl.innerHTML = `<strong>결과:</strong> ${score} / ${total} 점`;
+  const header = `<strong>결과:</strong> ${score} / ${total} 점`;
+
+  // 상세 목록 생성
+  // 맞으면 초록, 틀리면 빨강. 서술형은 사용자가 쓴 답도 표시.
+  const items = testHistory.map((h, idx) => {
+    const okColor = h.correct ? "var(--ok)" : "var(--bad)";
+    const modeLabel =
+      h.mode === "mcq_t2m" ? "객관식 단→뜻" :
+      h.mode === "mcq_m2t" ? "객관식 뜻→단" :
+      "서술형 뜻→단";
+    const line1 = `<div><b>${idx+1}.</b> [${modeLabel}] <code>${escapeHtml(h.term)}</code> — <em>${escapeHtml(h.meaning)}</em></div>`;
+    // 서술형은 사용자가 입력한 답 표기, MCQ는 사용자가 고른 보기(또는 패스/시간초과)
+    const userAns = h.userAnswer ? ` / 내가 쓴 답: "${escapeHtml(h.userAnswer)}"` : "";
+    const line2 = `<div>결과: <span style="color:${okColor}; font-weight:600;">${h.correct ? "정답" : "오답"}</span>${userAns}</div>`;
+    return `<li style="border-left:4px solid ${okColor}; padding-left:10px;">${line1}${line2}</li>`;
+  }).join("");
+
+  testResultEl.innerHTML = `
+    <div style="margin-bottom:8px;">${header}</div>
+    <ul style="display:block; gap:8px; padding-left:16px;">
+      ${items}
+    </ul>
+  `;
   show(testResultEl);
+}
+
+// XSS 방지용 간단 escape
+function escapeHtml(s) {
+  return (s ?? "").toString()
+    .replaceAll("&","&amp;")
+    .replaceAll("<","&lt;")
+    .replaceAll(">","&gt;")
+    .replaceAll('"',"&quot;")
+    .replaceAll("'","&#039;");
 }
