@@ -10,6 +10,8 @@ import {
   doc, deleteDoc, updateDoc
 } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore.js";
 
+console.log("app.js loaded v7");
+
 const auth = window.firebaseAuth;
 const db   = window.firebaseDB;
 
@@ -55,9 +57,9 @@ const quizQ         = document.getElementById("quiz-q");
 const quizFreeBox   = document.getElementById("quiz-free");
 const quizAnswerEl  = document.getElementById("quiz-answer");
 const submitAnswerBtn = document.getElementById("submit-answer");
+const passBtn       = document.getElementById("pass-question");
 const quizChoices   = document.getElementById("quiz-choices");
 const quizFeedback  = document.getElementById("quiz-feedback");
-const nextQuestionBtn = document.getElementById("next-question");
 const endTestBtn    = document.getElementById("end-test");
 const testResultEl  = document.getElementById("test-result");
 
@@ -69,11 +71,14 @@ let wordsCache = [];    // [{id, term, meaning}, ...]
 
 // 테스트 상태
 let testRunning = false;
-let testMode = "t2m"; // t2m | m2t | mcq
+let testMode = "mcq_t2m"; // mcq_t2m | mcq_m2t | free_m2t
 let quizOrder = [];   // 인덱스 배열
 let quizIdx = 0;
 let score = 0;
 let answered = false;
+let awaitingAdvance = false;
+let selectedChoiceId = null; // MCQ에서 선택한 보기 id
+let advanceTimer = null;
 
 // 유틸
 const shuffle = (arr) => {
@@ -87,6 +92,13 @@ const shuffle = (arr) => {
 
 const show = (el) => el.classList.remove("hidden");
 const hide = (el) => el.classList.add("hidden");
+
+const setDisabled = (el, flag) => {
+  if (!el) return;
+  el.disabled = flag;
+  if (flag) el.setAttribute("disabled", "true");
+  else el.removeAttribute("disabled");
+};
 
 // 로그인 상태
 onAuthStateChanged(auth, (user) => {
@@ -105,7 +117,7 @@ onAuthStateChanged(auth, (user) => {
     wordListEl.innerHTML = "";
     if (unsubBooks) unsubBooks();
     if (unsubWords) unsubWords();
-    resetTestUI();
+    resetTestUI(true);
   }
 });
 
@@ -114,16 +126,12 @@ signupBtn.onclick = async () => {
   try {
     await createUserWithEmailAndPassword(auth, emailEl.value, pwEl.value);
     alert("회원가입 완료!");
-  } catch (e) {
-    alert(e.message);
-  }
+  } catch (e) { alert(e.message); }
 };
 loginBtn.onclick = async () => {
   try {
     await signInWithEmailAndPassword(auth, emailEl.value, pwEl.value);
-  } catch (e) {
-    alert(e.message);
-  }
+  } catch (e) { alert(e.message); }
 };
 logoutBtn.onclick = async () => { await signOut(auth); };
 
@@ -146,10 +154,9 @@ function startBooksLive(uid) {
     snap.forEach((d) => {
       const data = d.data();
       const li = document.createElement("li");
-      const nameBtn = document.createElement("button");
-      nameBtn.textContent = data.name;
-      nameBtn.onclick = () => openBook({ id: d.id, name: data.name });
-      li.appendChild(nameBtn);
+      li.textContent = data.name;
+      li.style.cursor = "pointer";
+      li.onclick = () => openBook({ id: d.id, name: data.name });
       bookListEl.appendChild(li);
     });
   });
@@ -166,7 +173,7 @@ function openBook(book) {
   activateTab("manage");
 
   startWordsLive();
-  resetTestUI();
+  resetTestUI(true);
 }
 
 // 단어 실시간 구독
@@ -241,7 +248,7 @@ backToBooksBtn.onclick = () => {
   appSection.classList.remove("hidden");
   currentBook = null;
   wordListEl.innerHTML = "";
-  resetTestUI();
+  resetTestUI(true);
 };
 
 // 탭 전환
@@ -263,10 +270,17 @@ function activateTab(which) {
 // ===== 테스트 로직 =====
 startTestBtn.onclick = () => {
   if (!wordsCache.length) return alert("단어가 없습니다. 먼저 추가해주세요!");
-  testMode = testModeSel.value; // t2m | m2t | mcq
+  testMode = testModeSel.value; // mcq_t2m | mcq_m2t | free_m2t
+
+  if ((testMode === "mcq_t2m" || testMode === "mcq_m2t") && wordsCache.length < 3) {
+    return alert("객관식은 최소 3개 단어가 필요해요.");
+  }
+
   testRunning = true;
   score = 0;
   answered = false;
+  awaitingAdvance = false;
+  selectedChoiceId = null;
   quizOrder = shuffle(wordsCache.map((_, i) => i));
   quizIdx = 0;
 
@@ -277,107 +291,162 @@ startTestBtn.onclick = () => {
   updateStatus();
 };
 
+// 제출
 submitAnswerBtn.onclick = () => {
-  if (!testRunning || answered) return;
-  handleFreeAnswer();
+  if (!testRunning || answered || awaitingAdvance) return;
+
+  if (testMode === "free_m2t") {
+    handleFreeSubmit();
+  } else {
+    // MCQ는 선택이 필요
+    if (!selectedChoiceId) return alert("보기를 선택해줘!");
+    handleMcqSubmit();
+  }
 };
-nextQuestionBtn.onclick = () => {
-  if (!testRunning) return;
-  nextQuestion();
+
+// 패스 (무조건 오답 처리하고 정답 표시 → 3초 후 자동 다음)
+passBtn.onclick = () => {
+  if (!testRunning || awaitingAdvance) return;
+  const w = wordsCache[quizOrder[quizIdx]];
+  answered = true;
+  showFeedback(false, correctTextForMode(w));
+  scheduleNext();
 };
+
+// 종료
 endTestBtn.onclick = () => finishTest();
 
-function resetTestUI() {
+function resetTestUI(hideAll=false) {
   testRunning = false;
   score = 0;
   quizOrder = [];
   quizIdx = 0;
   answered = false;
+  awaitingAdvance = false;
+  selectedChoiceId = null;
+  if (advanceTimer) { clearTimeout(advanceTimer); advanceTimer = null; }
+
   quizQ.textContent = "";
   quizFeedback.textContent = "";
   quizChoices.innerHTML = "";
   quizAnswerEl.value = "";
-  hide(quizArea);
-  hide(testResultEl);
+  if (hideAll) {
+    hide(quizArea);
+    hide(testResultEl);
+  }
   testStatusEl.textContent = "";
 }
 
-// 상태 표시
 function updateStatus() {
   testStatusEl.textContent = `진행: ${quizIdx+1}/${quizOrder.length} | 점수: ${score}`;
 }
 
-// 문제 렌더
 function renderQuestion() {
   answered = false;
+  awaitingAdvance = false;
+  selectedChoiceId = null;
   quizFeedback.textContent = "";
   quizChoices.innerHTML = "";
   quizAnswerEl.value = "";
 
+  // 입력/버튼 활성화
+  setDisabled(submitAnswerBtn, false);
+  setDisabled(passBtn, false);
+  setDisabled(quizAnswerEl, false);
+
   const w = wordsCache[quizOrder[quizIdx]];
-  if (testMode === "t2m") {
-    quizQ.textContent = `뜻을 쓰세요: ${w.term}`;
+
+  if (testMode === "free_m2t") {
+    // 뜻 -> 단어(스펠링)
+    quizQ.textContent = `단어를 쓰세요 (뜻): ${w.meaning}`;
     show(quizFreeBox); hide(quizChoices);
-  } else if (testMode === "m2t") {
-    quizQ.textContent = `단어를 쓰세요: ${w.meaning}`;
-    show(quizFreeBox); hide(quizChoices);
-  } else { // mcq
-    quizQ.textContent = `정답을 고르세요: ${w.term}`;
+  } else if (testMode === "mcq_t2m") {
+    // 단어 -> 뜻 (보기: 뜻 3개)
+    quizQ.textContent = `정답을 고르세요 (단어 → 뜻): ${w.term}`;
     hide(quizFreeBox); show(quizChoices);
-    renderChoices(w);
-  }
-}
-
-// 주관식 채점
-function handleFreeAnswer() {
-  const w = wordsCache[quizOrder[quizIdx]];
-  const ans = quizAnswerEl.value.trim();
-  let ok = false;
-  if (testMode === "t2m") {
-    ok = normalize(ans) === normalize(w.meaning);
-  } else if (testMode === "m2t") {
-    ok = normalize(ans) === normalize(w.term);
-  }
-  answered = true;
-  if (ok) {
-    score++;
-    quizFeedback.textContent = "✅ 정답!";
+    renderChoices(w, /*showField*/"meaning");
   } else {
-    quizFeedback.textContent = `❌ 오답. 정답: ${testMode==="t2m" ? w.meaning : w.term}`;
+    // mcq_m2t: 뜻 -> 단어 (보기: 단어 3개)
+    quizQ.textContent = `정답을 고르세요 (뜻 → 단어): ${w.meaning}`;
+    hide(quizFreeBox); show(quizChoices);
+    renderChoices(w, /*showField*/"term");
   }
-  updateStatus();
 }
 
-// 객관식 보기 생성
-function renderChoices(correct) {
-  const pool = shuffle(wordsCache);
-  const options = [correct];
-  for (const w of pool) {
-    if (options.length >= 4) break;
-    if (w.id !== correct.id) options.push(w);
-  }
-  const shuffled = shuffle(options);
+function handleFreeSubmit() {
+  const w = wordsCache[quizOrder[quizIdx]];
+  const ans = normalize(quizAnswerEl.value);
+  const ok  = ans === normalize(w.term);
 
-  shuffled.forEach((opt) => {
+  answered = true;
+  if (ok) score++;
+  showFeedback(ok, correctTextForMode(w));
+  scheduleNext();
+}
+
+function handleMcqSubmit() {
+  const w = wordsCache[quizOrder[quizIdx]];
+  const ok = selectedChoiceId === w.id;
+  answered = true;
+  if (ok) score++;
+  showFeedback(ok, correctTextForMode(w));
+  scheduleNext();
+}
+
+// 보기 생성 (정답 + 오답 2개 = 3지선다)
+function renderChoices(correct, showField) {
+  // 후보 풀에서 정답 제외 후 2개 선택
+  const pool = shuffle(wordsCache.filter(x => x.id !== correct.id)).slice(0, 2);
+  const options = shuffle([correct, ...pool]);
+
+  options.forEach((opt) => {
     const b = document.createElement("button");
-    b.textContent = (testMode === "mcq" ? opt.meaning : opt.meaning); // mcq는 term 고정, 보기에는 뜻
+    b.textContent = (showField === "term" ? opt.term : opt.meaning);
+    b.style.outline = "none";
+
     b.onclick = () => {
-      if (answered) return;
-      answered = true;
-      if (opt.id === correct.id) {
-        score++;
-        quizFeedback.textContent = "✅ 정답!";
-      } else {
-        quizFeedback.textContent = `❌ 오답. 정답: ${correct.meaning}`;
-      }
-      updateStatus();
+      if (answered || awaitingAdvance) return;
+      // 선택 토글 (단일 선택)
+      selectedChoiceId = opt.id;
+      // 선택 표시
+      [...quizChoices.children].forEach(btn => btn.classList.remove("selected"));
+      b.classList.add("selected");
     };
+
     quizChoices.appendChild(b);
   });
 }
 
-// 다음 문제
+// 피드백 표시
+function showFeedback(ok, correctText) {
+  quizFeedback.textContent = ok ? "✅ 정답!" : `❌ 오답. 정답: ${correctText}`;
+  // 입력/버튼 잠금
+  setDisabled(submitAnswerBtn, true);
+  setDisabled(passBtn, true);
+  setDisabled(quizAnswerEl, true);
+  // 보기 클릭 막기
+  [...quizChoices.children].forEach(btn => btn.onclick = null);
+}
+
+// 모드별 정답 텍스트
+function correctTextForMode(w) {
+  if (testMode === "mcq_t2m") return w.meaning; // 단어→뜻
+  // 나머지 두 모드는 뜻→단어
+  return w.term;
+}
+
+// 3초 후 자동 다음
+function scheduleNext() {
+  awaitingAdvance = true;
+  if (advanceTimer) clearTimeout(advanceTimer);
+  advanceTimer = setTimeout(() => {
+    advanceTimer = null;
+    nextQuestion();
+  }, 3000);
+}
+
 function nextQuestion() {
+  if (!testRunning) return;
   if (quizIdx < quizOrder.length - 1) {
     quizIdx++;
     renderQuestion();
