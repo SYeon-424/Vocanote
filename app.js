@@ -655,27 +655,26 @@ function pushHistory(wordObj, ok, userAnswerStr) {
   });
 }
 
-// 종료/결과 (점수 표시 제거, 상세 리스트만)
-// 종료/결과 (점수 표시 제거, 상세 리스트만)
 function finishTest() {
   testRunning = false;
   clearTimers();
   hide(quizArea);
 
   const total = quizOrder.length || 0;
-  const header = `<strong>결과:</strong> ${score} / ${total}`;
+  const correctCount = testHistory.filter(h => h.correct).length;
+  const header = `<strong>결과:</strong> ${correctCount} / ${total}`;
 
   const items = testHistory.map((h, idx) => {
     const okColor = h.correct ? "var(--ok)" : "var(--bad)";
     const line1 = `<div><b>${idx+1}.</b> ${escapeHtml(h.term)} — <em>${escapeHtml(h.meaning)}</em></div>`;
     const userAns = h.userAnswer ? ` / 내가 쓴 답: "${escapeHtml(h.userAnswer)}"` : "";
     const line2 = `<div>결과: <span style="color:${okColor}; font-weight:600;">${h.correct ? "정답" : "오답"}</span>${userAns}</div>`;
-    return `<li style="border-left:4px solid ${okColor}; padding-left:10px;">${line1}${line2}</li>`;
+    return `<li style="border-left:4px solid ${okColor}; padding-left:10px; margin-bottom:8px;">${line1}${line2}</li>`;
   }).join("");
 
   testResultEl.innerHTML = `
     <div style="margin-bottom:8px;">${header}</div>
-    <ul style="display:block; gap:8px; padding-left:16px;">
+    <ul style="padding-left:16px; list-style: none; margin:0;">
       ${items}
     </ul>
   `;
