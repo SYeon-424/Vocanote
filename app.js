@@ -12,10 +12,17 @@ import {
   getDocs, writeBatch, where
 } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore.js";
 
-console.log("app.js v24");
+/* ★ 추가: Storage (프로필 이미지 업로드용) */
+import {
+  getStorage, ref as sRef, uploadBytes, getDownloadURL
+} from "https://www.gstatic.com/firebasejs/10.13.2/firebase-storage.js";
+
+console.log("app.js v24 + profile/level");
 
 const auth = window.firebaseAuth;
 const db   = window.firebaseDB;
+/* ★ 추가: Storage 인스턴스 */
+const storage = getStorage(window.firebaseApp);
 
 /* ===================== DOM ===================== */
 const authSection = document.getElementById("auth-section");
@@ -29,6 +36,12 @@ const pwEl    = document.getElementById("password");
 const signupBtn = document.getElementById("signup-btn");
 const loginBtn  = document.getElementById("login-btn");
 const logoutBtn = document.getElementById("logout-btn");
+
+/* ★ 추가: 프로필 관련 DOM(있으면 작동, 없으면 무시) */
+const profileImgEl    = document.getElementById("profile-img");     // <img>
+const profileFileEl   = document.getElementById("profile-file");    // <input type="file">
+const profileUploadBtn= document.getElementById("profile-upload");  // <button>
+const userLevelEl     = document.getElementById("user-level");      // <span> 등
 
 // 개인 단어장
 const bookNameEl = document.getElementById("book-name");
@@ -185,13 +198,43 @@ onAuthStateChanged(auth, async (user) => {
     hide(authSection); show(appSection); hide(wordsSection); hide(groupSection); hide(gWordsSection);
 
     let display = user.displayName || "";
-    if (!display) {
-      try { const snap = await getDoc(doc(db, "users", user.uid)); if (snap.exists()) display = snap.data().nickname || ""; } catch {}
-    }
+    try {
+      const snap = await getDoc(doc(db, "users", user.uid));
+      if (snap.exists()) {
+        const u = snap.data();
+        if (!display) display = u.nickname || "";
+        /* ★ 추가: 로그인 시 프로필 이미지/레벨 표시 */
+        if (profileImgEl && u.profileImg) profileImgEl.src = u.profileImg;
+        if (userLevelEl) userLevelEl.textContent = `Lv.${u.level || 1}`;
+      }
+    } catch {}
+
     userDisplayEl.textContent = display || user.email;
 
     startBooksLive(user.uid);
     startMyGroupsLive(user.uid);
+
+    /* ★ 추가: 프로필 업로드 이벤트 바인딩 (요소가 있을 때만) */
+    if (profileUploadBtn && profileFileEl) {
+      profileUploadBtn.onclick = async () => {
+        if (!profileFileEl.files || profileFileEl.files.length === 0) return;
+        const file = profileFileEl.files[0];
+        try {
+          const path = `users/${user.uid}/profile/${Date.now()}_${file.name}`;
+          const fileRef = sRef(storage, path);
+          await uploadBytes(fileRef, file);
+          const url = await getDownloadURL(fileRef);
+
+          await updateDoc(doc(db, "users", user.uid), { profileImg: url });
+          try { await updateProfile(user, { photoURL: url }); } catch {}
+
+          if (profileImgEl) profileImgEl.src = url;
+          console.log("profile image updated");
+        } catch (e) {
+          console.error(e);
+        }
+      };
+    }
   } else {
     show(authSection); hide(appSection); hide(wordsSection); hide(groupSection); hide(gWordsSection);
     userDisplayEl.textContent = "";
@@ -220,7 +263,13 @@ signupBtn.onclick = async () => {
   try {
     const cred = await createUserWithEmailAndPassword(auth, email, pw);
     await updateProfile(cred.user, { displayName: nickname });
-    await setDoc(doc(db, "users", cred.user.uid), { nickname, email, createdAt: Date.now() });
+    /* ★ 수정: 사용자 기본 프로필 필드 초기화 */
+    await setDoc(doc(db, "users", cred.user.uid), {
+      nickname, email, createdAt: Date.now(),
+      profileImg: "",   // 초기엔 빈 값
+      exp: 0,           // 경험치
+      level: 1          // 레벨
+    });
     alert("회원가입 완료");
   } catch (e) { alert(e.message); }
 };
@@ -483,7 +532,35 @@ function showFeedback(ok, correctText){
 function correctTextForMode(w){ return (testMode==="mcq_t2m") ? w.meaning : w.term; }
 function scheduleNext(){ awaitingAdvance=true; if(advanceTimer) clearTimeout(advanceTimer); advanceTimer=setTimeout(()=>{ advanceTimer=null; nextQuestion(); },2000); }
 function nextQuestion(){ if (!testRunning) return; if (quizIdx < quizOrder.length-1){ quizIdx++; renderQuestion(); updateStatus(); } else { finishTest(); } }
-function pushHistory(wordObj, ok, ans){ testHistory.push({ term:wordObj.term, meaning:wordObj.meaning, correct:!!ok, userAnswer:(ans??"").toString() }); }
+
+/* ★ 수정: 정답 시 경험치 추가(10점) */
+async function addExp(points){
+  const user = auth.currentUser; if (!user) return;
+  const ref = doc(db, "users", user.uid);
+  const snap = await getDoc(ref); if (!snap.exists()) return;
+  let { exp = 0, level = 1 } = snap.data();
+  exp += (points|0);
+
+  // 레벨업 규칙: 필요경험치 = level^2 * 100
+  const need = level * level * 100;
+  if (exp >= need) {
+    level += 1;
+    exp -= need;
+  }
+
+  await updateDoc(ref, { exp, level });
+  if (userLevelEl) userLevelEl.textContent = `Lv.${level}`;
+}
+
+/* ★ 수정: 기록 시 정답이면 addExp(10) */
+function pushHistory(wordObj, ok, ans){
+  if (ok) { addExp(10).catch(()=>{}); }
+  testHistory.push({
+    term:wordObj.term, meaning:wordObj.meaning,
+    correct:!!ok, userAnswer:(ans??"").toString()
+  });
+}
+
 function finishTest(){
   testRunning=false; clearTimers(); hide(quizArea);
   const total=quizOrder.length||0, correctCount=testHistory.filter(h=>h.correct).length;
@@ -874,7 +951,7 @@ gAddWordBtn.onclick = async () => {
   gWordTermEl.value = ""; gWordMeaningEl.value = "";
 };
 
-/* ===== 그룹 탭 전환 (★ 추가된 부분) ===== */
+/* ===== 그룹 탭 전환 ===== */
 gTabManageBtn.onclick = () => gActivateTab("manage");
 gTabTestBtn.onclick   = () => gActivateTab("test");
 
@@ -944,7 +1021,11 @@ function gShowFeedback(ok, correctText){ gQuizFeedback.textContent = ok ? "✅ �
 function gCorrectText(w){ return (gTestMode==="mcq_t2m")? w.meaning : w.term; }
 function gScheduleNext(){ gAwaiting=true; if(gAdvanceTimer) clearTimeout(gAdvanceTimer); gAdvanceTimer=setTimeout(()=>{ gAdvanceTimer=null; gNext(); },2000); }
 function gNext(){ if (!gTestRunning) return; if (gQuizIdx<gQuizOrder.length-1){ gQuizIdx++; gRenderQ(); gUpdateStatus(); } else gFinish(); }
-function gPushHistory(wordObj, ok, ans){ gHistory.push({ term:wordObj.term, meaning:wordObj.meaning, correct:!!ok, userAnswer:(ans??"").toString() }); }
+/* ★ 수정: 그룹 테스트도 정답이면 경험치 추가 */
+function gPushHistory(wordObj, ok, ans){
+  if (ok) { addExp(10).catch(()=>{}); }
+  gHistory.push({ term:wordObj.term, meaning:wordObj.meaning, correct:!!ok, userAnswer:(ans??"").toString() });
+}
 function gFinish(){
   gTestRunning=false; if(gAdvanceTimer){clearTimeout(gAdvanceTimer); gAdvanceTimer=null;} if(gMcqTick){clearInterval(gMcqTick); gMcqTick=null;}
   hide(gQuizArea);
