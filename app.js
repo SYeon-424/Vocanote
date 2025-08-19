@@ -865,7 +865,7 @@ gAddWordBtn.onclick = async () => {
 
   const term = (gWordTermEl.value || "").trim();
   const meaning = (gWordMeaningEl.value || "").trim();
-  if (!term || !meaning) return alert("단어와 뜻을 입력해주세요.");//////////////////////////////////////////////////////////////////////////////////////////////////////////////
+  if (!term || !meaning) return alert("단어와 뜻을 입력해주세요.");
 
   await addDoc(collection(db, "groups", currentGBook.gid, "vocabBooks", currentGBook.id, "words"), {
     term, meaning, ownerId: user.uid, createdAt: Date.now()
@@ -911,7 +911,7 @@ gSubmitAnswerBtn.onclick = () => {
 gPassBtn.onclick = () => {
   if (!gTestRunning || gAwaiting) return;
   const w = gWordsCache[gQuizOrder[gQuizIdx]];
-  gAnswered=true; gPushHistory(w,false,"(패스)"); gShowFeedback(false, gCorrectText(w)); playSound("wrong"); gScheduleNext();
+  gAnswered=true; gPushHistory(w,false,"(Pass)"); gShowFeedback(false, gCorrectText(w)); playSound("wrong"); gScheduleNext();
 };
 gEndTestBtn.onclick = () => gFinish();
 
@@ -927,9 +927,9 @@ function gUpdateStatus(){ const base=`진행: ${gQuizIdx+1}/${gQuizOrder.length}
 function gRenderQ(){
   gAnswered=false; gAwaiting=false; gQuizFeedback.textContent=""; gQuizChoices.innerHTML=""; gQuizAnswerEl.value="";
   const w = gWordsCache[gQuizOrder[gQuizIdx]];
-  if (gTestMode==="free_m2t"){ gQuizQ.textContent=`단어를 쓰세요 (뜻): ${w.meaning}`; show(gQuizFreeBox); hide(gQuizChoices); show(gSubmitAnswerBtn); gUpdateStatus(); }
-  else if (gTestMode==="mcq_t2m"){ gQuizQ.textContent=`정답을 고르세요 (단어 → 뜻): ${w.term}`; hide(gQuizFreeBox); show(gQuizChoices); hide(gSubmitAnswerBtn); gRenderChoices(w,"meaning"); gStartMcqTimer(w); }
-  else { gQuizQ.textContent=`정답을 고르세요 (뜻 → 단어): ${w.meaning}`; hide(gQuizFreeBox); show(gQuizChoices); hide(gSubmitAnswerBtn); gRenderChoices(w,"term"); gStartMcqTimer(w); }
+  if (gTestMode==="free_m2t"){ gQuizQ.textContent=`단어를 쓰세요 : ${w.meaning}`; show(gQuizFreeBox); hide(gQuizChoices); show(gSubmitAnswerBtn); gUpdateStatus(); }
+  else if (gTestMode==="mcq_t2m"){ gQuizQ.textContent=`정답을 고르세요 : ${w.term}`; hide(gQuizFreeBox); show(gQuizChoices); hide(gSubmitAnswerBtn); gRenderChoices(w,"meaning"); gStartMcqTimer(w); }
+  else { gQuizQ.textContent=`정답을 고르세요 : ${w.meaning}`; hide(gQuizFreeBox); show(gQuizChoices); hide(gSubmitAnswerBtn); gRenderChoices(w,"term"); gStartMcqTimer(w); }
 }
 function gStartMcqTimer(w){ gMcqRemain=10; gUpdateStatus(); gMcqTick=setInterval(()=>{ if(!gTestRunning||gAnswered){clearInterval(gMcqTick); gMcqTick=null; return;} gMcqRemain-=1; gUpdateStatus(); if(gMcqRemain<=0){ clearInterval(gMcqTick); gMcqTick=null; if(!gAnswered && !gAwaiting){ gAnswered=true; gPushHistory(w,false,"(시간초과)"); gShowFeedback(false, gCorrectText(w)); playSound("timeout"); gScheduleNext(); } } },1000); }
 function gRenderChoices(correct, field){
