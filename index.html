@@ -14,7 +14,7 @@
   <style>
     :root { color-scheme: light dark; --ok:#1a7f37; --bad:#d32f2f; }
     body { font-family: system-ui, apple-system, sans-serif; margin:0; }
-    .container { max-width: 920px; margin: 24px auto; padding: 0 16px; }
+    .container { max-width: 960px; margin: 24px auto; padding: 0 16px; }
     .hidden { display: none; }
     .row { display:flex; gap:8px; align-items:center; }
     .space { justify-content: space-between; }
@@ -25,6 +25,11 @@
     .tab { padding:8px 12px; border:1px solid #8884; border-radius:8px; }
     .tab.active { font-weight:700; text-decoration: underline; }
     hr { border: none; border-top: 1px solid #8884; margin:16px 0; }
+
+    /* 프로필 카드 */
+    .card { border:1px solid #8884; border-radius:12px; padding:12px; display:flex; gap:14px; align-items:center; }
+    .avatar { width:72px; height:72px; border-radius:50%; object-fit:cover; background:#0001; }
+    .grow { flex:1; }
   </style>
 
   <!-- Firebase 초기화 + 앱 로드 -->
@@ -42,7 +47,7 @@
       navigator.serviceWorker.register("./service-worker.js");
     }
 
-    import("./app.js?v=24"); /* 캐시 무력화용 버전 */
+    import("./app.js?v=30");
   </script>
 </head>
 <body>
@@ -60,12 +65,31 @@
       </div>
     </section>
 
-    <!-- 로그인 후: 홈(단어장/그룹) -->
+    <!-- 로그인 후: 홈(프로필/단어장/그룹) -->
     <section id="app-section" class="hidden">
       <div class="row space">
         <div>👤 <span id="user-display"></span></div>
         <button id="logout-btn">로그아웃</button>
       </div>
+
+      <hr />
+
+      <!-- 프로필 -->
+      <section class="card">
+        <img id="user-avatar" class="avatar" alt="avatar" src="" />
+        <div class="grow">
+          <div class="row" style="gap:12px; flex-wrap:wrap;">
+            <div><b id="profile-nickname">닉네임</b> · <span id="profile-email">email</span></div>
+          </div>
+          <div style="margin-top:6px;">
+            레벨 <b id="user-level">1</b> · 포인트 <b id="user-points">0</b>
+          </div>
+          <div class="row" style="margin-top:8px; flex-wrap:wrap;">
+            <input id="avatar-file" type="file" accept="image/*" />
+            <button id="save-avatar">프로필 이미지 저장</button>
+          </div>
+        </div>
+      </section>
 
       <hr />
 
