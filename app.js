@@ -526,7 +526,7 @@ function startMyGroupsLive(uid) {
 
       if (g.owner) {
         const renameBtn = document.createElement("button");
-        renameBtn.textContent = "이름수정";
+        renameBtn.textContent = "Rename";
         renameBtn.onclick = async (e) => {
           e.stopPropagation();
           const newName = prompt("새 그룹 이름", g.name);
@@ -605,7 +605,7 @@ joinGroupBtn.onclick = async () => {
 // 그룹 열기/뒤로/탈퇴
 function openGroup(g) {
   currentGroup = g;
-  currentGroupTitleEl.textContent = `그룹 – ${g.name}`;
+  currentGroupTitleEl.textContent = `${g.name}`;
   groupInviteCodeEl.textContent = g.code || "";
 
   hide(appSection); hide(wordsSection); hide(gWordsSection); show(groupSection);
@@ -733,7 +733,7 @@ function startGBooksLive(gid) {
 
 // 드롭다운 갱신
 function refreshImportSourceSelect(){
-  importSourceSel.innerHTML = `<option value=""> 내 단어장을 선택하세요 </option>`;
+  importSourceSel.innerHTML = `<option value="">내 단어장을 선택하세요</option>`;
   myBooksCache.forEach(b => {
     const opt = document.createElement("option");
     opt.value = b.id; opt.textContent = b.name;
