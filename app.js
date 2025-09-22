@@ -511,14 +511,14 @@ function renderQuestion() {
   setDisabled(passBtn,false); setDisabled(quizAnswerEl,false);
   const w = wordsCache[quizOrder[quizIdx]];
   if (testMode==="free_m2t"){
-    quizQ.textContent = `단어를 쓰세요 : ${w.meaning}`;
+    quizQ.textContent = w.meaning;
     show(quizFreeBox); hide(quizChoices); show(submitAnswerBtn); updateStatus();
   } else if (testMode==="mcq_t2m"){
-    quizQ.textContent = `정답을 고르세요 : ${w.term}`;
+    quizQ.textContent = w.term;
     hide(quizFreeBox); show(quizChoices); hide(submitAnswerBtn);
     renderChoices(w,"meaning"); startMcqTimer(w);
   } else {
-    quizQ.textContent = `정답을 고르세요 : ${w.meaning}`;
+    quizQ.textContent = w.meaning;
     hide(quizFreeBox); show(quizChoices); hide(submitAnswerBtn);
     renderChoices(w,"term"); startMcqTimer(w);
   }
@@ -1112,9 +1112,9 @@ function gUpdateStatus(){ const base=`진행: ${gQuizIdx+1}/${gQuizOrder.length}
 function gRenderQ(){
   gAnswered=false; gAwaiting=false; gQuizFeedback.textContent=""; gQuizChoices.innerHTML=""; gQuizAnswerEl.value="";
   const w = gWordsCache[gQuizOrder[gQuizIdx]];
-  if (gTestMode==="free_m2t"){ gQuizQ.textContent=`단어를 쓰세요 : ${w.meaning}`; show(gQuizFreeBox); hide(gQuizChoices); show(gSubmitAnswerBtn); gUpdateStatus(); }
-  else if (gTestMode==="mcq_t2m"){ gQuizQ.textContent=`정답을 고르세요 : ${w.term}`; hide(gQuizFreeBox); show(gQuizChoices); hide(gSubmitAnswerBtn); gRenderChoices(w,"meaning"); gStartMcqTimer(w); }
-  else { gQuizQ.textContent=`정답을 고르세요 : ${w.meaning}`; hide(gQuizFreeBox); show(gQuizChoices); hide(gSubmitAnswerBtn); gRenderChoices(w,"term"); gStartMcqTimer(w); }
+  if (gTestMode==="free_m2t"){ gQuizQ.textContent= w.meaning; show(gQuizFreeBox); hide(gQuizChoices); show(gSubmitAnswerBtn); gUpdateStatus(); }
+  else if (gTestMode==="mcq_t2m"){ gQuizQ.textContent= w.term; hide(gQuizFreeBox); show(gQuizChoices); hide(gSubmitAnswerBtn); gRenderChoices(w,"meaning"); gStartMcqTimer(w); }
+  else { gQuizQ.textContent= w.meaning; hide(gQuizFreeBox); show(gQuizChoices); hide(gSubmitAnswerBtn); gRenderChoices(w,"term"); gStartMcqTimer(w); }
 }
 function gStartMcqTimer(w){ gMcqRemain=10; gUpdateStatus(); gMcqTick=setInterval(()=>{ if(!gTestRunning||gAnswered){clearInterval(gMcqTick); gMcqTick=null; return;} gMcqRemain-=1; gUpdateStatus(); if(gMcqRemain<=0){ clearInterval(gMcqTick); gMcqTick=null; if(!gAnswered && !gAwaiting){ gAnswered=true; gPushHistory(w,false,"(시간초과)"); gShowFeedback(false, gCorrectText(w)); playSound("timeout"); gScheduleNext(); } } },1000); }
 function gRenderChoices(correct, field){
