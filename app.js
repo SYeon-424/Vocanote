@@ -1,3 +1,5 @@
+// app.js v32 — 프로필 카드(id 맞춤), 이미지 업로드, 레벨/포인트, 그룹 멤버 칭호 좌측 정렬
+
 import {
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
@@ -12,18 +14,18 @@ import {
   getDocs, writeBatch, where
 } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore.js";
 
-/* ★ Storage (프로필 이미지 업로드용) */
 import {
   getStorage, ref as sRef, uploadBytes, getDownloadURL
 } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-storage.js";
 
-console.log("app.js v31 (members level/title via group members docs)");
+console.log("app.js v32");
 
+// ===== Firebase handles =====
 const auth = window.firebaseAuth;
 const db   = window.firebaseDB;
 const storage = getStorage(window.firebaseApp);
 
-/* ===================== DOM ===================== */
+// ===================== DOM =====================
 const authSection = document.getElementById("auth-section");
 const appSection  = document.getElementById("app-section");
 const wordsSection = document.getElementById("words-section");
@@ -36,11 +38,14 @@ const signupBtn = document.getElementById("signup-btn");
 const loginBtn  = document.getElementById("login-btn");
 const logoutBtn = document.getElementById("logout-btn");
 
-/* 프로필 관련 DOM(있으면 작동, 없으면 무시) */
-const profileImgEl    = document.getElementById("profile-img");     // <img>
-const profileFileEl   = document.getElementById("profile-file");    // <input type="file">
-const profileUploadBtn= document.getElementById("profile-upload");  // <button>
-const userLevelEl     = document.getElementById("user-level");      // <span> 등
+// ★ 프로필 카드(id 교정: HTML과 반드시 일치)
+const avatarImgEl     = document.getElementById("user-avatar");      // <img>
+const avatarFileEl    = document.getElementById("avatar-file");      // <input type="file">
+const saveAvatarBtn   = document.getElementById("save-avatar");      // <button>
+const profileNickEl   = document.getElementById("profile-nickname"); // 닉네임 텍스트
+const profileEmailEl  = document.getElementById("profile-email");    // 이메일 텍스트
+const userLevelEl     = document.getElementById("user-level");       // "Lv.x"
+const userPointsEl    = document.getElementById("user-points");      // 포인트 숫자
 
 // 개인 단어장
 const bookNameEl = document.getElementById("book-name");
@@ -128,12 +133,12 @@ const gQuizFeedback  = document.getElementById("gquiz-feedback");
 const gEndTestBtn    = document.getElementById("gend-test");
 const gTestResultEl  = document.getElementById("gtest-result");
 
-/* ===================== 상태 ===================== */
+// ===================== 상태 =====================
 let unsubBooks = null;
 let unsubWords = null;
 let currentBook = null;
 let wordsCache = [];
-let myBooksCache = []; // 그룹 업로드용
+let myBooksCache = [];
 
 let testRunning = false;
 let testMode = "mcq_t2m";
@@ -149,12 +154,12 @@ let testHistory = [];
 /* 그룹 상태 */
 let unsubMyGroups = null;
 let unsubGroupMembers = null;
-let currentGroup = null; // { id, name, code }
+let currentGroup = null;
 
 /* 그룹 단어장 상태 */
 let unsubGBooks = null;
 let unsubGWords = null;
-let currentGBook = null;     // { gid, id, name, ownerId }
+let currentGBook = null; // { gid, id, name, ownerId }
 let gWordsCache = [];
 let gIsOwner = false;
 
@@ -164,7 +169,7 @@ let gAnswered=false, gAwaiting=false, gAdvanceTimer=null;
 let gMcqRemain=0, gMcqTick=null;
 let gHistory=[];
 
-/* ===================== 유틸 ===================== */
+// ===================== 유틸 =====================
 const shuffle = (arr) => { const a = arr.slice(); for (let i=a.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [a[i],a[j]]=[a[j],a[i]]; } return a; };
 const show = (el) => el.classList.remove("hidden");
 const hide = (el) => el.classList.add("hidden");
@@ -172,7 +177,7 @@ const setDisabled = (el, flag) => { if (!el) return; el.disabled = flag; if (fla
 const normalize = (s) => (s || "").toString().trim().toLowerCase();
 function clearTimers() { if (advanceTimer){clearTimeout(advanceTimer); advanceTimer=null;} if (mcqTick){clearInterval(mcqTick); mcqTick=null;} }
 
-/* ===== 사운드 (Web Audio) ===== */
+// ===== 사운드 =====
 let audioCtx = null;
 let soundEnabled = true;
 function ensureAudio(){ if (!soundEnabled) return; if (!audioCtx){ try{ audioCtx = new (window.AudioContext||window.webkitAudioContext)(); }catch{ soundEnabled=false; } } }
@@ -191,8 +196,7 @@ function playSound(kind){ if(!soundEnabled) return; ensureAudio(); if(!audioCtx)
   document.body.appendChild(btn);
 }catch{}})();
 
-/* ===================== 공통: 내 멤버 문서 동기화 ===================== */
-/** 내가 속한 모든 그룹의 members/{uid}에 fields를 업데이트 */
+// ===================== 공통: 내 멤버 문서 동기화 =====================
 async function syncMyMemberFields(fields){
   const user = auth.currentUser; if (!user) return;
   const gs = await getDocs(collection(db, "users", user.uid, "groups"));
@@ -205,7 +209,7 @@ async function syncMyMemberFields(fields){
   await batch.commit();
 }
 
-/* ===================== 인증 ===================== */
+// ===================== 인증 =====================
 onAuthStateChanged(auth, async (user) => {
   if (user) {
     hide(authSection); show(appSection); hide(wordsSection); hide(groupSection); hide(gWordsSection);
@@ -215,14 +219,24 @@ onAuthStateChanged(auth, async (user) => {
       const snap = await getDoc(doc(db, "users", user.uid));
       if (snap.exists()) {
         const u = snap.data();
-        if (!display) display = u.nickname || "";
-        if (profileImgEl && u.profileImg) profileImgEl.src = u.profileImg;
-        if (userLevelEl) userLevelEl.textContent = `Lv.${u.level || 1}`;
 
-        // 로그인 직후, 멤버 문서와 닉/사진/레벨 동기화(선택)
+        // 닉/메일
+        const nick = (display || u.nickname || user.email || "").trim();
+        if (profileNickEl)  profileNickEl.textContent = nick || "닉네임";
+        if (profileEmailEl) profileEmailEl.textContent = (u.email || user.email || "email");
+
+        // 이미지 폴백: Auth.photoURL → users.profileImg → (legacy)profileImgBase64
         const photoURL = user.photoURL || u.profileImg || u.profileImgBase64 || "";
-        const level = u.level || 1;
-        syncMyMemberFields({ photoURL, level }).catch(()=>{});
+        if (avatarImgEl) avatarImgEl.src = photoURL || "";
+
+        // 레벨/포인트
+        const lv = u.level || 1;
+        const exp = u.exp || 0;
+        if (userLevelEl)  userLevelEl.textContent = `Lv.${lv}`;
+        if (userPointsEl) userPointsEl.textContent = exp;
+
+        // 멤버 문서에도 동기화
+        syncMyMemberFields({ photoURL, level: lv }).catch(()=>{});
       }
     } catch {}
 
@@ -231,11 +245,11 @@ onAuthStateChanged(auth, async (user) => {
     startBooksLive(user.uid);
     startMyGroupsLive(user.uid);
 
-    /* 프로필 업로드: Storage 업로드 → users 문서/프로필 업데이트 → 모든 그룹 멤버 문서 동기화 */
-    if (profileUploadBtn && profileFileEl) {
-      profileUploadBtn.onclick = async () => {
-        if (!profileFileEl.files || profileFileEl.files.length === 0) return;
-        const file = profileFileEl.files[0];
+    // 프로필 업로드
+    if (saveAvatarBtn && avatarFileEl) {
+      saveAvatarBtn.onclick = async () => {
+        if (!avatarFileEl.files || avatarFileEl.files.length === 0) return;
+        const file = avatarFileEl.files[0];
         try {
           const path = `users/${user.uid}/profile/${Date.now()}_${file.name}`;
           const fileRef = sRef(storage, path);
@@ -245,13 +259,12 @@ onAuthStateChanged(auth, async (user) => {
           await updateDoc(doc(db, "users", user.uid), { profileImg: url });
           try { await updateProfile(user, { photoURL: url }); } catch {}
 
-          // 모든 그룹 멤버 문서에도 반영
-          await syncMyMemberFields({ photoURL: url });
-
-          if (profileImgEl) profileImgEl.src = url;
+          await syncMyMemberFields({ photoURL: url }).catch(()=>{});
+          if (avatarImgEl) avatarImgEl.src = url;
           console.log("profile image updated");
         } catch (e) {
           console.error(e);
+          alert("이미지 업로드 실패: " + (e?.message || e));
         }
       };
     }
@@ -293,9 +306,9 @@ signupBtn.onclick = async () => {
 loginBtn.onclick = async () => { try { await signInWithEmailAndPassword(auth, emailEl.value, pwEl.value); } catch (e) { alert(e.message); } };
 logoutBtn.onclick = async () => { await signOut(auth); };
 
-/* ===================== 개인 단어장 ===================== */
+// ===================== 개인 단어장 =====================
 createBookBtn.onclick = async () => {
-  const name = bookNameEl.value.trim();
+  const name = (bookNameEl.value || "").trim();
   const user = auth.currentUser;
   if (!user) return alert("로그인을 해 주세요.");
   if (!name) return alert("단어장 이름을 입력해주세요.");
@@ -426,8 +439,8 @@ addWordBtn.onclick = async () => {
   const user = auth.currentUser;
   if (!user) return alert("로그인을 해 주세요.");
   if (!currentBook) return alert("단어장을 선택해주세요.");
-  const term = wordTermEl.value.trim();
-  const meaning = wordMeaningEl.value.trim();
+  const term = (wordTermEl.value || "").trim();
+  const meaning = (wordMeaningEl.value || "").trim();
   if (!term || !meaning) return alert("단어와 뜻을 입력해주세요.");
   await addDoc(collection(db, "users", user.uid, "vocabBooks", currentBook.id, "words"), { term, meaning, createdAt: Date.now() });
   wordTermEl.value = ""; wordMeaningEl.value = "";
@@ -448,7 +461,7 @@ function activateTab(which) {
   else { tabTestBtn.classList.add("active"); tabManageBtn.classList.remove("active"); show(testPane); hide(managePane); }
 }
 
-/* ===================== 테스트 (개인) ===================== */
+// ===================== 테스트 (개인) =====================
 startTestBtn.onclick = () => {
   if (!wordsCache.length) return alert("단어가 없습니다. 단어를 먼저 추가해주세요.");
   testMode = testModeSel.value;
@@ -548,7 +561,7 @@ function correctTextForMode(w){ return (testMode==="mcq_t2m") ? w.meaning : w.te
 function scheduleNext(){ awaitingAdvance=true; if(advanceTimer) clearTimeout(advanceTimer); advanceTimer=setTimeout(()=>{ advanceTimer=null; nextQuestion(); },2000); }
 function nextQuestion(){ if (!testRunning) return; if (quizIdx < quizOrder.length-1){ quizIdx++; renderQuestion(); updateStatus(); } else { finishTest(); } }
 
-/* ★ 정답 시 경험치 추가(10점) + 멤버 문서 level 동기화 */
+// ★ 정답 시 경험치 추가(10) / UI 즉시 반영 / 멤버 level 동기화
 async function addExp(points){
   const user = auth.currentUser; if (!user) return;
   const ref = doc(db, "users", user.uid);
@@ -556,6 +569,7 @@ async function addExp(points){
   let { exp = 0, level = 1 } = snap.data();
   exp += (points|0);
 
+  // 레벨업 규칙: 필요경험치 = level^2 * 100 * 2 (=200, 800, 1800, ...)
   const need = level * level * 100 * 2;
   if (exp >= need) {
     level += 1;
@@ -563,8 +577,12 @@ async function addExp(points){
   }
 
   await updateDoc(ref, { exp, level });
-  if (userLevelEl) userLevelEl.textContent = `Lv.${level}`;
-  // 내 모든 그룹 멤버 문서에 level 반영
+
+  // 프로필 카드 반영
+  if (userLevelEl)  userLevelEl.textContent = `Lv.${level}`;
+  if (userPointsEl) userPointsEl.textContent = exp;
+
+  // 내 모든 그룹 멤버 문서에도 반영
   syncMyMemberFields({ level }).catch(()=>{});
 }
 
@@ -594,7 +612,7 @@ function finishTest(){
 // XSS escape
 function escapeHtml(s){ return (s??"").toString().replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;").replaceAll('"',"&quot;").replaceAll("'","&#039;"); }
 
-/* ===================== 그룹 ===================== */
+// ===================== 그룹 =====================
 function makeInviteCode(len=6){ const chars="ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; let s=""; for(let i=0;i<len;i++) s+=chars[Math.floor(Math.random()*chars.length)]; return s; }
 
 function startMyGroupsLive(uid) {
@@ -660,7 +678,7 @@ createGroupBtn.onclick = async () => {
     name, code, publicJoin: true, ownerId: user.uid, createdAt: Date.now()
   });
 
-  // 내 users 문서에서 레벨/프로필 가져와 멤버 문서에 함께 저장
+  // 내 users 문서에서 레벨/프로필 가져와 멤버 문서에 저장
   const meSnap = await getDoc(doc(db, "users", user.uid));
   const my = meSnap.exists() ? meSnap.data() : {};
   const photoURL = user.photoURL || my.profileImg || my.profileImgBase64 || "";
@@ -841,8 +859,7 @@ async function deleteGroup(groupId) {
   await deleteDoc(doc(db, "groups", groupId));
 }
 
-/* ===================== 그룹 단어장 (내 단어장에서 가져오기) ===================== */
-
+// ===================== 그룹 단어장 (내 단어장에서 가져오기) =====================
 function startGBooksLive(gid) {
   if (unsubGBooks) unsubGBooks();
   const qBooks = query(collection(db, "groups", gid, "vocabBooks"), orderBy("createdAt","desc"));
@@ -981,7 +998,7 @@ function startGWordsLive() {
       const w = { id: d.id, ...d.data() };
       gWordsCache.push(w);
 
-      // 과거 데이터 보정: ownerId 없으면 책의 owner로 백필(실패 무시)
+      // 과거 데이터 보정
       if (!w.ownerId && currentGBook.ownerId) {
         try { updateDoc(doc(db, "groups", currentGBook.gid, "vocabBooks", currentGBook.id, "words", w.id), { ownerId: currentGBook.ownerId }).catch(()=>{}); } catch {}
       }
@@ -993,7 +1010,6 @@ function startGWordsLive() {
       const btnWrap = document.createElement("div");
       btnWrap.className = "btn-wrap";
 
-      // 단어 업로더 또는 단어장 소유자
       const canEdit = (user.uid === w.ownerId) || !!gIsOwner;
 
       if (canEdit) {
@@ -1061,7 +1077,7 @@ function gActivateTab(which) {
   }
 }
 
-/* ===================== 그룹 테스트 ===================== */
+// ===================== 그룹 테스트 =====================
 gStartTestBtn.onclick = () => {
   if (!gWordsCache.length) return alert("단어가 없습니다.");
   gTestMode = gTestModeSel.value;
@@ -1105,7 +1121,7 @@ function gRenderChoices(correct, field){
   const pool = shuffle(gWordsCache.filter(x=>x.id!==correct.id)).slice(0,2);
   const options = shuffle([correct, ...pool]);
   options.forEach((opt)=>{ const b=document.createElement("button"); b.textContent=(field==="term"?opt.term:opt.meaning);
-    b.onclick=()=>{ if(gAnswered||gAwaiting) return; gAnswered=true; const ok=opt.id===correct.id; gPushHistory(correct, ok, b.textContent); gShowFeedback(ok, gCorrectText(correct)); playSound(ok?"correct":"wrong"); gScheduleNext(); };
+    b.onclick=()=>{ if(gAnswered||gAwaiting) return; const ok=opt.id===correct.id; gAnswered=true; gPushHistory(correct, ok, b.textContent); gShowFeedback(ok, gCorrectText(correct)); playSound(ok?"correct":"wrong"); gScheduleNext(); };
     gQuizChoices.appendChild(b);
   });
 }
@@ -1127,5 +1143,5 @@ function gFinish(){
   show(gTestResultEl);
 }
 
-/* ===================== 기타 유틸 ===================== */
+// ===================== 기타 유틸 =====================
 function chunk(arr,n){ const out=[]; for(let i=0;i<arr.length;i+=n) out.push(arr.slice(i,i+n)); return out; }
