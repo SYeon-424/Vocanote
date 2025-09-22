@@ -30,6 +30,19 @@
     .card { border:1px solid #8884; border-radius:12px; padding:12px; display:flex; gap:14px; align-items:center; }
     .avatar { width:72px; height:72px; border-radius:50%; object-fit:cover; background:#0001; }
     .grow { flex:1; }
+
+    /* 버튼+상태 세로 배치 */
+    .stack {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 6px;
+    }
+
+    .status-line {
+      font-size: 0.9rem;
+      color: #9aa0a6;
+    }
   </style>
 
   <!-- Firebase 초기화 + 앱 로드 -->
@@ -147,8 +160,11 @@
               <option value="free_m2t">서술형 (뜻→단어)</option>
             </select>
           </label>
-          <button id="start-test">테스트 시작</button>
-          <div id="test-status"></div>
+
+          <div class="stack">
+            <button id="start-test">테스트 시작</button>
+            <div id="test-status" class="status-line"></div>
+          </div>
         </div>
 
         <div id="quiz-area" class="hidden" style="margin-top:12px;">
@@ -233,8 +249,11 @@
               <option value="free_m2t">서술형 (뜻→단어)</option>
             </select>
           </label>
-          <button id="gstart-test">테스트 시작</button>
-          <div id="gtest-status"></div>
+
+          <div class="stack">
+            <button id="gstart-test">테스트 시작</button>
+            <div id="gtest-status" class="status-line"></div>
+          </div>
         </div>
 
         <div id="gquiz-area" class="hidden" style="margin-top:12px;">
