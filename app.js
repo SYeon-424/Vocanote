@@ -1,4 +1,4 @@
-// app.js — Base64 in Firestore, group member avatars
+// app.js — Base64 in Firestore, group member avatars¡¡¡¡¡
 
 import {
   createUserWithEmailAndPassword,
