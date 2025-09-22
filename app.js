@@ -900,6 +900,15 @@ function startGWordsLive() {
       const w = { id: d.id, ...d.data() };
       gWordsCache.push(w);
 
+      // 🔧 과거 데이터 보정: ownerId 없으면 책의 owner로 백필 (실패해도 무시)
+      if (!w.ownerId && currentGBook.ownerId) {
+        try {
+          updateDoc(doc(db, "groups", currentGBook.gid, "vocabBooks", currentGBook.id, "words", w.id), {
+            ownerId: currentGBook.ownerId
+          }).catch(()=>{});
+        } catch {}
+      }
+
       const li = document.createElement("li");
       const label = document.createElement("span");
       label.textContent = `${w.term} — ${w.meaning}`;
@@ -907,23 +916,29 @@ function startGWordsLive() {
       const btnWrap = document.createElement("div");
       btnWrap.className = "btn-wrap";
 
-      // 단어 업로더만 수정/삭제
-      const isOwner = (user.uid === w.ownerId);
-      if (isOwner) {
+      // ✅ 권한 규칙: (1) 단어 추가자 OR (2) 그룹 단어장 소유자
+      const canEdit = (user.uid === w.ownerId) || !!gIsOwner;
+
+      if (canEdit) {
         const editBtn = document.createElement("button");
         editBtn.textContent = "수정";
         editBtn.onclick = async () => {
           const nt = prompt("단어(term) 수정", w.term); if (nt === null) return;
           const nm = prompt("뜻(meaning) 수정", w.meaning); if (nm === null) return;
-          await updateDoc(doc(db, "groups", currentGBook.gid, "vocabBooks", currentGBook.id, "words", w.id), { term: nt.trim(), meaning: nm.trim() });
+          await updateDoc(doc(db, "groups", currentGBook.gid, "vocabBooks", currentGBook.id, "words", w.id), {
+            term: nt.trim(), meaning: nm.trim()
+          });
         };
+
         const delBtn = document.createElement("button");
         delBtn.textContent = "삭제";
         delBtn.onclick = async () => {
           if (!confirm("삭제할까요?")) return;
           await deleteDoc(doc(db, "groups", currentGBook.gid, "vocabBooks", currentGBook.id, "words", w.id));
         };
-        btnWrap.appendChild(editBtn); btnWrap.appendChild(delBtn);
+
+        btnWrap.appendChild(editBtn);
+        btnWrap.appendChild(delBtn);
       }
 
       li.appendChild(label);
@@ -932,6 +947,7 @@ function startGWordsLive() {
     });
   });
 }
+
 
 // 그룹 단어 추가(업로더만)
 gAddWordBtn.onclick = async () => {
