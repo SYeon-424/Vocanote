@@ -1,3 +1,5 @@
+// app.js (full)
+
 import {
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
@@ -12,16 +14,15 @@ import {
   getDocs, writeBatch, where
 } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore.js";
 
-/* ★ 추가: Storage (프로필 이미지 업로드용) */
+/* Storage (프로필 이미지 업로드용) */
 import {
   getStorage, ref as sRef, uploadBytes, getDownloadURL
 } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-storage.js";
 
-console.log("app.js v24 + profile/level");
+console.log("app.js v31 - profile upload + group avatars + fixes");
 
 const auth = window.firebaseAuth;
 const db   = window.firebaseDB;
-/* ★ 추가: Storage 인스턴스 */
 const storage = getStorage(window.firebaseApp);
 
 /* ===================== DOM ===================== */
@@ -37,11 +38,15 @@ const signupBtn = document.getElementById("signup-btn");
 const loginBtn  = document.getElementById("login-btn");
 const logoutBtn = document.getElementById("logout-btn");
 
-/* ★ 추가: 프로필 관련 DOM(있으면 작동, 없으면 무시) */
-const profileImgEl    = document.getElementById("profile-img");     // <img>
-const profileFileEl   = document.getElementById("profile-file");    // <input type="file">
-const profileUploadBtn= document.getElementById("profile-upload");  // <button>
-const userLevelEl     = document.getElementById("user-level");      // <span> 등
+/* 프로필 카드 DOM (index.html과 일치) */
+const avatarImgEl   = document.getElementById("user-avatar");   // <img>
+const avatarFileEl  = document.getElementById("avatar-file");   // <input type="file">
+const saveAvatarBtn = document.getElementById("save-avatar");   // <button>
+
+const profileNickEl = document.getElementById("profile-nickname");
+const profileEmailEl= document.getElementById("profile-email");
+const userLevelEl   = document.getElementById("user-level");    // 숫자만 표기
+const userPointsEl  = document.getElementById("user-points");   // exp
 
 // 개인 단어장
 const bookNameEl = document.getElementById("book-name");
@@ -198,14 +203,21 @@ onAuthStateChanged(auth, async (user) => {
     hide(authSection); show(appSection); hide(wordsSection); hide(groupSection); hide(gWordsSection);
 
     let display = user.displayName || "";
+    let photo   = user.photoURL || "";
+
     try {
       const snap = await getDoc(doc(db, "users", user.uid));
       if (snap.exists()) {
         const u = snap.data();
         if (!display) display = u.nickname || "";
-        /* ★ 추가: 로그인 시 프로필 이미지/레벨 표시 */
-        if (profileImgEl && u.profileImg) profileImgEl.src = u.profileImg;
-        if (userLevelEl) userLevelEl.textContent = `Lv.${u.level || 1}`;
+        if (!photo && u.profileImg) photo = u.profileImg;
+
+        // 프로필 카드 표시
+        if (profileNickEl)  profileNickEl.textContent = display || user.email || "";
+        if (profileEmailEl) profileEmailEl.textContent = u.email || user.email || "";
+        if (userLevelEl)    userLevelEl.textContent   = String(u.level || 1);
+        if (userPointsEl)   userPointsEl.textContent  = String(u.exp ?? 0);
+        if (avatarImgEl && photo) avatarImgEl.src = photo;
       }
     } catch {}
 
@@ -214,24 +226,40 @@ onAuthStateChanged(auth, async (user) => {
     startBooksLive(user.uid);
     startMyGroupsLive(user.uid);
 
-    /* ★ 추가: 프로필 업로드 이벤트 바인딩 (요소가 있을 때만) */
-    if (profileUploadBtn && profileFileEl) {
-      profileUploadBtn.onclick = async () => {
-        if (!profileFileEl.files || profileFileEl.files.length === 0) return;
-        const file = profileFileEl.files[0];
+    /* 프로필 이미지 업로드 */
+    if (saveAvatarBtn && avatarFileEl) {
+      saveAvatarBtn.onclick = async () => {
+        if (!avatarFileEl.files || avatarFileEl.files.length === 0) {
+          return alert("이미지 파일을 선택하세요.");
+        }
+        const file = avatarFileEl.files[0];
         try {
           const path = `users/${user.uid}/profile/${Date.now()}_${file.name}`;
           const fileRef = sRef(storage, path);
           await uploadBytes(fileRef, file);
           const url = await getDownloadURL(fileRef);
 
+          // users/{uid} 문서 + Auth 프로필 동기화
           await updateDoc(doc(db, "users", user.uid), { profileImg: url });
           try { await updateProfile(user, { photoURL: url }); } catch {}
 
-          if (profileImgEl) profileImgEl.src = url;
-          console.log("profile image updated");
+          if (avatarImgEl) avatarImgEl.src = url;
+
+          // 내가 속한 모든 그룹의 members/{uid}에 photoURL 반영
+          try {
+            const myGroupsSnap = await getDocs(collection(db, "users", user.uid, "groups"));
+            const batch = writeBatch(db);
+            myGroupsSnap.forEach(gd => {
+              const gid = gd.id;
+              batch.update(doc(db, "groups", gid, "members", user.uid), { photoURL: url });
+            });
+            await batch.commit();
+          } catch {}
+
+          alert("프로필 이미지가 업데이트되었습니다.");
         } catch (e) {
           console.error(e);
+          alert("업로드 실패: " + (e.message || e));
         }
       };
     }
@@ -249,6 +277,13 @@ onAuthStateChanged(auth, async (user) => {
     if (unsubGBooks) unsubGBooks();
     if (unsubGWords) unsubGWords();
     resetTestUI(true); gResetTestUI(true);
+
+    // 프로필 카드 초기화
+    if (avatarImgEl) avatarImgEl.src = "";
+    if (profileNickEl) profileNickEl.textContent = "닉네임";
+    if (profileEmailEl) profileEmailEl.textContent = "email";
+    if (userLevelEl) userLevelEl.textContent = "1";
+    if (userPointsEl) userPointsEl.textContent = "0";
   }
 });
 
@@ -263,13 +298,17 @@ signupBtn.onclick = async () => {
   try {
     const cred = await createUserWithEmailAndPassword(auth, email, pw);
     await updateProfile(cred.user, { displayName: nickname });
-    /* ★ 수정: 사용자 기본 프로필 필드 초기화 */
     await setDoc(doc(db, "users", cred.user.uid), {
       nickname, email, createdAt: Date.now(),
-      profileImg: "",   // 초기엔 빈 값
-      exp: 0,           // 경험치
-      level: 1          // 레벨
+      profileImg: "",
+      exp: 0,
+      level: 1
     });
+    // 프로필 카드 즉시 반영
+    if (profileNickEl)  profileNickEl.textContent = nickname;
+    if (profileEmailEl) profileEmailEl.textContent = email;
+    if (userLevelEl)    userLevelEl.textContent   = "1";
+    if (userPointsEl)   userPointsEl.textContent  = "0";
     alert("회원가입 완료");
   } catch (e) { alert(e.message); }
 };
@@ -533,7 +572,7 @@ function correctTextForMode(w){ return (testMode==="mcq_t2m") ? w.meaning : w.te
 function scheduleNext(){ awaitingAdvance=true; if(advanceTimer) clearTimeout(advanceTimer); advanceTimer=setTimeout(()=>{ advanceTimer=null; nextQuestion(); },2000); }
 function nextQuestion(){ if (!testRunning) return; if (quizIdx < quizOrder.length-1){ quizIdx++; renderQuestion(); updateStatus(); } else { finishTest(); } }
 
-/* ★ 수정: 정답 시 경험치 추가(10점) */
+/* 정답 시 경험치 추가(10점) */
 async function addExp(points){
   const user = auth.currentUser; if (!user) return;
   const ref = doc(db, "users", user.uid);
@@ -549,10 +588,11 @@ async function addExp(points){
   }
 
   await updateDoc(ref, { exp, level });
-  if (userLevelEl) userLevelEl.textContent = `Lv.${level}`;
+  if (userLevelEl) userLevelEl.textContent = String(level);
+  if (userPointsEl) userPointsEl.textContent = String(exp);
 }
 
-/* ★ 수정: 기록 시 정답이면 addExp(10) */
+/* 기록 시 정답이면 addExp(10) */
 function pushHistory(wordObj, ok, ans){
   if (ok) { addExp(10).catch(()=>{}); }
   testHistory.push({
@@ -643,7 +683,7 @@ createGroupBtn.onclick = async () => {
   const code = makeInviteCode();
   const groupRef = await addDoc(collection(db, "groups"), { name, code, publicJoin: true, ownerId: user.uid, createdAt: Date.now() });
 
-  await setDoc(doc(db, "groups", groupRef.id, "members", user.uid), { uid: user.uid, nickname: user.displayName || user.email, joinedAt: Date.now(), owner: true });
+  await setDoc(doc(db, "groups", groupRef.id, "members", user.uid), { uid: user.uid, nickname: user.displayName || user.email, joinedAt: Date.now(), owner: true, photoURL: user.photoURL || "" });
   await setDoc(doc(db, "users", user.uid, "groups", groupRef.id), { groupId: groupRef.id, name, code, joinedAt: Date.now(), owner: true });
 
   groupNameEl.value = "";
@@ -672,7 +712,13 @@ joinGroupBtn.onclick = async () => {
     return openGroup({ id: gid, name: data.name, code: data.code });
   }
 
-  await setDoc(doc(db, "groups", gid, "members", user.uid), { uid: user.uid, nickname: user.displayName || user.email, joinedAt: Date.now(), owner: user.uid === data.ownerId });
+  await setDoc(doc(db, "groups", gid, "members", user.uid), {
+    uid: user.uid,
+    nickname: user.displayName || user.email,
+    joinedAt: Date.now(),
+    owner: user.uid === data.ownerId,
+    photoURL: user.photoURL || ""
+  });
   await setDoc(myRef, { groupId: gid, name: data.name, code: data.code, joinedAt: Date.now(), owner: user.uid === data.ownerId });
 
   joinCodeEl.value = "";
@@ -697,9 +743,27 @@ function startMembersLive(gid) {
   unsubGroupMembers = onSnapshot(qMem, (snap) => {
     groupMembersEl.innerHTML = "";
     snap.forEach(d => {
-      const m = d.data();
+      const m = d.data(); // { uid, nickname, owner, photoURL? }
       const li = document.createElement("li");
-      li.textContent = m.nickname + (m.owner ? " (관리자)" : "");
+      li.style.display = "flex";
+      li.style.alignItems = "center";
+      li.style.gap = "10px";
+
+      const img = document.createElement("img");
+      img.alt = "avatar";
+      img.referrerPolicy = "no-referrer";
+      img.style.width = "28px";
+      img.style.height = "28px";
+      img.style.borderRadius = "50%";
+      img.style.objectFit = "cover";
+      img.style.background = "#0001";
+      if (m.photoURL) img.src = m.photoURL;
+
+      const nameSpan = document.createElement("span");
+      nameSpan.textContent = m.nickname + (m.owner ? " (관리자)" : "");
+
+      li.prepend(img);
+      li.appendChild(nameSpan);
       groupMembersEl.appendChild(li);
     });
   });
@@ -873,7 +937,7 @@ function openGBook(gid, b) {
 
   hide(appSection); hide(wordsSection); hide(groupSection); show(gWordsSection);
 
-  // ⭐ 그룹 탭 기본: '수정'
+  // 그룹 탭 기본: '수정'
   gActivateTab("manage");
 
   startGWordsLive();
@@ -900,7 +964,7 @@ function startGWordsLive() {
       const w = { id: d.id, ...d.data() };
       gWordsCache.push(w);
 
-      // 🔧 과거 데이터 보정: ownerId 없으면 책의 owner로 백필 (실패해도 무시)
+      // 과거 데이터 보정 (optional)
       if (!w.ownerId && currentGBook.ownerId) {
         try {
           updateDoc(doc(db, "groups", currentGBook.gid, "vocabBooks", currentGBook.id, "words", w.id), {
@@ -916,8 +980,8 @@ function startGWordsLive() {
       const btnWrap = document.createElement("div");
       btnWrap.className = "btn-wrap";
 
-      // ✅ 권한 규칙: (1) 단어 추가자 OR (2) 그룹 단어장 소유자
-      const canEdit = (user.uid === w.ownerId) || !!gIsOwner;
+      // 책 업로더(gIsOwner)만 수정/삭제 가능 (규칙과 일치)
+      const canEdit = !!gIsOwner;
 
       if (canEdit) {
         const editBtn = document.createElement("button");
@@ -949,7 +1013,7 @@ function startGWordsLive() {
 }
 
 
-// 그룹 단어 추가(업로더만)
+// 그룹 단어 추가(책 업로더만)
 gAddWordBtn.onclick = async () => {
   const user = auth.currentUser;
   if (!user) return alert("로그인을 해 주세요.");
@@ -1037,7 +1101,7 @@ function gShowFeedback(ok, correctText){ gQuizFeedback.textContent = ok ? "✅ �
 function gCorrectText(w){ return (gTestMode==="mcq_t2m")? w.meaning : w.term; }
 function gScheduleNext(){ gAwaiting=true; if(gAdvanceTimer) clearTimeout(gAdvanceTimer); gAdvanceTimer=setTimeout(()=>{ gAdvanceTimer=null; gNext(); },2000); }
 function gNext(){ if (!gTestRunning) return; if (gQuizIdx<gQuizOrder.length-1){ gQuizIdx++; gRenderQ(); gUpdateStatus(); } else gFinish(); }
-/* ★ 수정: 그룹 테스트도 정답이면 경험치 추가 */
+/* 그룹 테스트도 정답이면 경험치 추가 */
 function gPushHistory(wordObj, ok, ans){
   if (ok) { addExp(10).catch(()=>{}); }
   gHistory.push({ term:wordObj.term, meaning:wordObj.meaning, correct:!!ok, userAnswer:(ans??"").toString() });
