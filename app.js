@@ -556,7 +556,7 @@ async function addExp(points){
   let { exp = 0, level = 1 } = snap.data();
   exp += (points|0);
 
-  const need = level * level * 100;
+  const need = level * level * 100 * 2;
   if (exp >= need) {
     level += 1;
     exp -= need;
