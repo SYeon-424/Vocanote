@@ -734,7 +734,7 @@ function openGroup(g) {
   refreshImportSourceSelect();
 }
 
-/* 멤버 렌더링(아바타+이름+호칭), (관리자) 제거 */
+/* 멤버 렌더링(아바타·이름·호칭) — 이름 옆에 회색 호칭, 왼쪽 정렬로 딱 붙게 */
 function startMembersLive(gid) {
   if (unsubGroupMembers) unsubGroupMembers();
   const qMem = query(collection(db, "groups", gid, "members"), orderBy("joinedAt", "asc"));
@@ -742,8 +742,11 @@ function startMembersLive(gid) {
     groupMembersEl.innerHTML = "";
     snap.forEach(async d => {
       const m = d.data(); // {uid, nickname, owner, photoURL?}
+
       const li = document.createElement("li");
+      // 강제 왼쪽 정렬
       li.style.display = "flex";
+      li.style.justifyContent = "flex-start";
       li.style.alignItems = "center";
       li.style.gap = "10px";
 
@@ -754,30 +757,44 @@ function startMembersLive(gid) {
       img.style.borderRadius = "50%";
       img.style.objectFit = "cover";
       img.style.background = "#0001";
-      img.src = m.photoURL || ""; // 우선 멤버 문서의 photoURL 사용
+      img.src = m.photoURL || "";
+
+      // 이름 + 호칭을 한 래퍼에 넣어 딱 붙게
+      const nameWrap = document.createElement("div");
+      nameWrap.style.display = "flex";
+      nameWrap.style.alignItems = "baseline";
+      nameWrap.style.gap = "6px";  // 붙이되 살짝만 간격
+      nameWrap.style.flex = "0 0 auto";
 
       // 이름(관리자 제거)
       const nameSpan = document.createElement("span");
-      nameSpan.style.flex = "0 0 auto";
-      nameSpan.style.fontWeight = "500";
+      nameSpan.style.fontWeight = "600";
       nameSpan.textContent = (m.nickname || "").replace(/\(관리자\)/g, "").trim();
 
-      // 호칭(레벨 필요 → users/{uid} 읽기)
+      // 호칭(회색)
       const titleSpan = document.createElement("span");
-      titleSpan.style.color = "#9aa0a6"; // 회색
-      titleSpan.style.marginLeft = "6px";
+      titleSpan.style.color = "#9aa0a6";
       titleSpan.style.fontSize = "0.95em";
 
+      nameWrap.appendChild(nameSpan);
+      nameWrap.appendChild(titleSpan);
+
       li.appendChild(img);
-      li.appendChild(nameSpan);
-      li.appendChild(titleSpan);
+      li.appendChild(nameWrap);
       groupMembersEl.appendChild(li);
 
+      // users/{uid}에서 레벨·프로필 불러와 적용
       try {
         const uSnap = await getDoc(doc(db, "users", m.uid));
         if (uSnap.exists()) {
           const u = uSnap.data();
           const level = u.level || 1;
+          const levelTitles = {
+            1: "문우현쌤의 하트셰이커",
+            2: "멍청한 장구벌레",
+            3: "개발자 쪼는 비둘기",
+            4: "은수 킬"
+          };
           titleSpan.textContent = levelTitles[level] || "";
           if (!img.src && u.profileImgBase64) img.src = u.profileImgBase64;
         } else {
