@@ -273,6 +273,33 @@
     </section>
     <!-- 대결 카운트다운 오버레이 -->
     <div id="duel-countdown" class="hidden" style="position:fixed; inset:0; display:flex; align-items:center; justify-content:center; background:#0008; font-size:72px; font-weight:800; z-index:9999;"></div>
+    <!-- 대결용 단어장/배팅 선택 모달 -->
+    <div id="duel-pick-modal" class="hidden"
+         style="position:fixed; inset:0; display:flex; align-items:center; justify-content:center; background:#0008; z-index:10000;">
+      <div style="background:#fff; color:#000; max-width:420px; width:92%; border-radius:12px; padding:16px; box-shadow:0 10px 30px #0006;">
+        <h3 style="margin:0 0 12px;">스피드퀴즈 대결 설정</h3>
+        <div style="display:flex; flex-direction:column; gap:10px;">
+          <div>상대: <b id="duel-opponent-name">-</b></div>
+    
+          <label style="display:flex; gap:8px; align-items:center;">
+            단어장:
+            <select id="duel-book-select" style="flex:1; min-width:220px;"></select>
+          </label>
+    
+          <label style="display:flex; gap:8px; align-items:center;">
+            배팅 포인트:
+            <input id="duel-bet" type="number" min="1" value="10" style="width:100px;">
+          </label>
+    
+          <div id="duel-my-point" style="font-size:0.95em; opacity:.8;"></div>
+        </div>
+    
+        <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:14px;">
+          <button id="duel-cancel">취소</button>
+          <button id="duel-confirm" style="font-weight:700;">대결 시작</button>
+        </div>
+      </div>
+    </div>
   </main>
 </body>
 </html>
