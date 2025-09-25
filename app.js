@@ -1,6 +1,4 @@
-// app.js v33 — 프로필 카드(id 맞춤), 이미지 업로드, 레벨/포인트, 그룹 멤버 칭호 좌측 정렬
-//            + 그룹 타이머 입력 양방향 바인딩(개인/그룹)
-//            + 멤버 이름 클릭 → 스피드퀴즈 대결(포인트 배팅, 3-2-1 카운트다운, 선착 정답 1점, 정산)
+// app.js v34 — 스피드퀴즈(배팅/수락 모달/카운트다운/모드 3종), 그룹/개인 단어장, 레벨/포인트, 프로필 업로드
 
 import {
   createUserWithEmailAndPassword,
@@ -20,7 +18,7 @@ import {
   getStorage, ref as sRef, uploadBytes, getDownloadURL
 } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-storage.js";
 
-console.log("app.js v33");
+console.log("app.js v34");
 
 // ===== Firebase handles =====
 const auth = window.firebaseAuth;
@@ -319,6 +317,7 @@ onAuthStateChanged(auth, async (user) => {
     if (unsubGroupMembers) unsubGroupMembers();
     if (unsubGBooks) unsubGBooks();
     if (unsubGWords) unsubGWords();
+    if (unsubIncomingReq) { unsubIncomingReq(); unsubIncomingReq=null; }
     resetTestUI(true); gResetTestUI(true);
     if (duel.unsub) { duel.unsub(); duel.unsub=null; }
   }
@@ -745,7 +744,7 @@ createGroupBtn.onclick = async () => {
 joinGroupBtn.onclick = async () => {
   const user = auth.currentUser;
   const code = (joinCodeEl.value || "").trim().toUpperCase();
-  if (!user) return alert("로그인을 해 주세요/-.");
+  if (!user) return alert("로그인을 해 주세요.");
   if (!code) return alert("초대코드를 입력해주세요.");
 
   const q = query(collection(db, "groups"), where("code","==",code), where("publicJoin","==",true));
@@ -796,10 +795,10 @@ function openGroup(g) {
   startMembersLive(g.id);
   startGBooksLive(g.id);
   refreshImportSourceSelect();
-  startDuelRequestListeners(g.id);
+  startDuelRequestListeners(g.id); // ✅ '이름 클릭' 모달과 짝
 }
 
-/* ===== 멤버 목록: members 문서의 level/photoURL만 사용 ===== */
+/* ===== 멤버 목록 ===== */
 function startMembersLive(gid) {
   if (unsubGroupMembers) unsubGroupMembers();
   const qMem = query(collection(db, "groups", gid, "members"), orderBy("joinedAt", "asc"));
@@ -845,15 +844,15 @@ function startMembersLive(gid) {
       nameSpan.style.cursor = "pointer";
       nameSpan.title = "클릭하면 스피드퀴즈 대결!";
 
-      // ★ 이름 클릭 → 대결 설정 모달 띄우기 (단어장/모드/라운드/시간/배팅) → 요청 생성
+      // ★ 이름 클릭 → 설정 모달 (단어장/모드/라운드/시간/배팅)
       nameSpan.onclick = async (e) => {
         e.stopPropagation();
         const me = auth.currentUser;
         if (!me) return;
         if (m.uid === me.uid) return; // 자기 자신 금지
         if (!currentGroup) { alert("그룹을 먼저 열어주세요."); return; }
-      
-        // 그룹 단어장 옵션 채우기
+
+        // 그룹 단어장 옵션
         duelOppNameEl.textContent = m.nickname || "상대";
         duelBookSelEl.innerHTML = "";
         if (!groupBooksCache.length) {
@@ -865,23 +864,23 @@ function startMembersLive(gid) {
           opt.value = b.id; opt.textContent = b.name;
           duelBookSelEl.appendChild(opt);
         });
-      
+
         // 내 포인트 표시
         try {
           const mySnap = await getDoc(doc(db, "users", me.uid));
           const exp = (mySnap.exists() ? (mySnap.data().exp|0) : 0);
           if (duelMyPointEl) duelMyPointEl.textContent = `내 보유 포인트: ${exp}`;
         } catch {}
-      
-        // 기본값 세팅
+
+        // 기본값
         duelBetEl.value    = "10";
         duelModeEl.value   = "mcq_t2m";
         duelRoundsEl.value = "10";
         duelTimerEl.value  = "10";
-      
+
         show(duelModalEl);
         duelCancelBtn.onclick = () => { hide(duelModalEl); };
-      
+
         // 확인 → matchRequests에 pending 생성
         duelConfirmBtn.onclick = async () => {
           const bookId = duelBookSelEl.value;
@@ -890,7 +889,7 @@ function startMembersLive(gid) {
           const rounds = Math.max(3, Math.min(50, parseInt(duelRoundsEl.value||"10",10)));
           const timer  = Math.max(3, Math.min(120, parseInt(duelTimerEl.value||"10",10)));
           const stake  = Math.max(1, parseInt(duelBetEl.value||"10",10));
-      
+
           try {
             await sendDuelRequest({
               gid: currentGroup.id,
@@ -924,6 +923,7 @@ function startMembersLive(gid) {
 backToGroupsBtn.onclick = () => {
   if (unsubGroupMembers) unsubGroupMembers();
   if (unsubGBooks) unsubGBooks();
+  if (unsubIncomingReq) { unsubIncomingReq(); unsubIncomingReq=null; }
   currentGroup = null; groupMembersEl.innerHTML = ""; gBookListEl.innerHTML="";
   hide(groupSection); show(appSection);
 };
@@ -978,7 +978,7 @@ function startGBooksLive(gid) {
     snap.forEach(d => {
       const b = { id: d.id, ...d.data() }; // {name, ownerId}
       const li = document.createElement("li");
-      groupBooksCache.push({ id: b.id, name: b.name, ownerId: b.ownerId });///////////////////////////////////////////////////////////////////
+      groupBooksCache.push({ id: b.id, name: b.name, ownerId: b.ownerId });
 
       const label = document.createElement("span");
       label.textContent = `${b.name}`;
@@ -1193,7 +1193,7 @@ function gActivateTab(which) {
     hide(gTestPane);
   } else {
     gTabTestBtn.classList.add("active");
-    gTabManagePane?.classList?.remove?.("active");
+    gTabManageBtn.classList.remove("active"); // ✅ 오타 수정(이전 코드에 gTabManagePane)
     hide(gManagePane);
     show(gTestPane);
   }
@@ -1204,7 +1204,7 @@ gStartTestBtn && (gStartTestBtn.onclick = () => {
   if (!gWordsCache.length) return alert("단어가 없습니다.");
   gTestMode = gTestModeSel.value;
 
-  // 그룹용 사용자 지정 타이머(초) 반영 (gtest-timer 우선, test-timer 하위호환)
+  // 그룹용 사용자 지정 타이머(초) 반영
   const gTimerInput = document.getElementById("gtest-timer") || document.getElementById("test-timer");
   if (gTimerInput) {
     const v = parseInt(gTimerInput.value, 10);
@@ -1282,7 +1282,7 @@ async function adjustUserExp(uid, delta){
   await runTransaction(db, async (tx)=>{
     const snap = await tx.get(ref);
     if (!snap.exists()) throw new Error("user not found");
-    let { exp=0, level=1 } = snap.data();
+    let { exp=0 } = snap.data();
     exp = Math.max(0, (exp|0) + (delta|0));
     tx.update(ref, { exp });
   }).catch(e=>{ console.error(e); throw e; });
@@ -1301,7 +1301,8 @@ async function adjustUserExp(uid, delta){
 }
 
 // ===================== 스피드퀴즈 대결 =====================
-async function createStakeMatch({ gid, bookId, timer, rounds, stake, oppo }){
+// (1) 매치 생성 (모드 지원)
+async function createStakeMatchWithMode({ gid, bookId, timer, rounds, stake, oppo, mode }){
   const me = auth.currentUser;
   if (!me) throw new Error("로그인이 필요합니다.");
 
@@ -1313,31 +1314,6 @@ async function createStakeMatch({ gid, bookId, timer, rounds, stake, oppo }){
   const wordsById = Object.fromEntries(words.map(w=>[w.id, w]));
 
   // 양쪽 exp 확인/예치
-  const meRef = doc(db, "users", me.uid);
-  const opRef = doc(db, "users", oppo.uid);
-  await runTransaction(db, async (tx)=>{
-    const a = await tx.get(meRef);  if (!a.exists()) throw new Error("내 사용자 문서가 없습니다.");
-    const b = await tx.get(opRef);  if (!b.exists()) throw new Error("상대 사용자 문서가 없습니다.");
-    const myExp = (a.data().exp|0);
-    const opExp = (b.data().exp|0);
-    if (myExp < stake) throw new Error("내 포인트가 부족해요.");
-    if (opExp < stake) throw new Error("상대 포인트가 부족해서 요청을 보낼 수 없어요.");
-
-    tx.update(meRef, { exp: myExp - stake });
-    tx.update(opRef, { exp: opExp - stake });
-  });
-
-  async function createStakeMatchWithMode({ gid, bookId, timer, rounds, stake, oppo, mode }) {
-  const me = auth.currentUser;
-  if (!me) throw new Error("로그인이 필요합니다.");
-
-  const wordsSnap = await getDocs(collection(db, "groups", gid, "vocabBooks", bookId, "words"));
-  const words = wordsSnap.docs.map(d=>({ id:d.id, ...d.data() }));
-  if (words.length < 3) throw new Error("단어가 3개 이상 있어야 대결 가능합니다.");
-  const order = shuffle(words.map(w=>w.id)).slice(0, rounds);
-  const wordsById = Object.fromEntries(words.map(w=>[w.id, w]));
-
-  // 예치(포인트 차감)
   const meRef = doc(db, "users", me.uid);
   const opRef = doc(db, "users", oppo.uid);
   await runTransaction(db, async (tx)=>{
@@ -1383,39 +1359,10 @@ async function createStakeMatch({ gid, bookId, timer, rounds, stake, oppo }){
   startDuelListener(midRef.path, /*host=*/true);
   return midRef.id;
 }
+// 호환용 단축
+async function createStakeMatch(args){ return createStakeMatchWithMode({ ...args, mode:"mcq_t2m" }); }
 
-  // 매치 문서 생성
-  const matchesCol = collection(db, "groups", gid, "matches");
-  const midRef = await addDoc(matchesCol, {
-    gid,
-    createdAt: Date.now(),
-    status: "waiting",
-    settings: { bookId, mode:"mcq_t2m", timer, rounds, stake },
-    stake: stake,
-    pot: stake*2,
-    settled: false,
-    players: {
-      p1: { uid: me.uid, nick: (me.displayName || me.email), score: 0, ready: true,  idx: 0 },
-      p2: { uid: oppo.uid, nick: oppo.nick,               score: 0, ready: false, idx: 0 }
-    },
-    questions: order
-  });
-
-  // 로컬 세팅 & 내 answers 초기화
-  duel = {
-    mid: midRef.id, gid,
-    me: { uid: me.uid, nick: (me.displayName || me.email) },
-    oppo,
-    settings: { bookId, mode:"mcq_t2m", timer, rounds, stake },
-    questions: order, idx: 0,
-    remain: 0, tick: null, unsub: null,
-    wordsById, roundLocked:false
-  };
-  await setDoc(doc(db, "groups", gid, "matches", midRef.id, "answers", me.uid), { byRound:{} }, { merge:true });
-
-  startDuelListener(midRef.path, /*host=*/true);
-}
-
+// (2) 매치 리스너
 function startDuelListener(matchPath, host=false){
   const matchRef = doc(db, matchPath);
   if (duel.unsub) duel.unsub();
@@ -1470,6 +1417,9 @@ function startDuelListener(matchPath, host=false){
       alert((s1===s2) ? `무승부! (${s1}:${s2})` : (iWon ? `🎉 승리! (${s1}:${s2})` : `패배… (${s1}:${s2})`));
       if (duel.unsub) { duel.unsub(); duel.unsub=null; }
     }
+  }, (err)=>{
+    console.error(err);
+    alert("대결 동기화 중 오류: " + (err?.message || err));
   });
 }
 
@@ -1512,26 +1462,29 @@ function startDuelRound(){
   const qEl = document.getElementById("gquiz-q");
   const ch = document.getElementById("gquiz-choices");
   const fb = document.getElementById("gquiz-feedback");
+  const freeBox = document.getElementById("gquiz-free");
+  const ansIn = document.getElementById("gquiz-answer");
+  const ansBtn= document.getElementById("gsubmit-answer");
+
   if (area) show(area);
   const mode = duel.settings?.mode || "mcq_t2m";
   if (qEl) {
-    if (mode === "mcq_m2t" || mode === "free_m2t") {
-      qEl.textContent = w.meaning; // 뜻 제시
-    } else {
-      qEl.textContent = w.term;    // 단어 제시
-    }
+    if (mode === "mcq_m2t" || mode === "free_m2t") qEl.textContent = w.meaning;
+    else qEl.textContent = w.term;
   }
   if (fb) fb.textContent = "";
-  if (ch) {
-    ch.classList.remove("hidden");
-    ch.innerHTML = "";
-  
-    if (mode.startsWith("mcq_")) {
+
+  // 보기/입력 토글
+  if (mode.startsWith("mcq_")) {
+    if (freeBox) hide(freeBox);
+    if (ch) {
+      ch.classList.remove("hidden");
+      ch.innerHTML = "";
       const pool = shuffle(Object.values(duel.wordsById).filter(x=>x.id!==w.id)).slice(0,2);
       const options = shuffle([w, ...pool]);
       options.forEach(opt=>{
         const b = document.createElement("button");
-        b.textContent = (mode === "mcq_m2t") ? opt.term : opt.meaning; // 보기 문구
+        b.textContent = (mode === "mcq_m2t") ? opt.term : opt.meaning;
         b.onclick = ()=> {
           if (duel.roundLocked) return;
           const isCorrect = (opt.id === w.id);
@@ -1539,21 +1492,18 @@ function startDuelRound(){
         };
         ch.appendChild(b);
       });
-    } else {
-      // free_m2t: 입력창 사용
-      ch.classList.add("hidden");
-      const freeBox = document.getElementById("gquiz-free");
-      const ansIn = document.getElementById("gquiz-answer");
-      const ansBtn= document.getElementById("gsubmit-answer");
-      if (freeBox && ansIn && ansBtn) {
-        show(freeBox);
-        ansIn.value = "";
-        ansBtn.onclick = ()=> {
-          if (duel.roundLocked) return;
-          const ok = normalize(ansIn.value) === normalize(w.term);
-          if (ok) resolveWinner(auth.currentUser.uid);
-        };
-      }
+    }
+  } else {
+    // free_m2t
+    if (ch) { ch.classList.add("hidden"); ch.innerHTML=""; }
+    if (freeBox && ansIn && ansBtn) {
+      show(freeBox);
+      ansIn.value = "";
+      ansBtn.onclick = ()=> {
+        if (duel.roundLocked) return;
+        const ok = normalize(ansIn.value) === normalize(w.term);
+        if (ok) resolveWinner(auth.currentUser.uid);
+      };
     }
   }
 }
@@ -1667,6 +1617,9 @@ async function sendDuelRequest({ gid, toUid, toNick, settings }) {
       alert(`상대가 대결을 거절했습니다.`);
       unsub && unsub();
     }
+  }, (err)=>{
+    console.error(err);
+    alert("대결 요청 구독 오류: " + (err?.message || err));
   });
 }
 
@@ -1713,6 +1666,8 @@ function startDuelRequestListeners(gid) {
       hide(incModalEl);
       await updateDoc(doc(db, "groups", gid, "matchRequests", reqId), { status: "accepted" });
     };
+  }, (err)=>{
+    console.error(err);
   });
 }
 
