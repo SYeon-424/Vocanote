@@ -39,9 +39,10 @@ const loginBtn  = document.getElementById("login-btn");
 const logoutBtn = document.getElementById("logout-btn");
 
 // ★ 프로필 카드(id 교정: HTML과 반드시 일치)
-const avatarImgEl     = document.getElementById("user-avatar");      // <img>
-const avatarFileEl    = document.getElementById("avatar-file");      // <input type="file">
-const saveAvatarBtn   = document.getElementById("save-avatar");      // <button>
+// 호환: 이전(user-*) / 현재(profile-*) 둘 다 지원
+const avatarImgEl   = document.getElementById("user-avatar")  || document.getElementById("profile-img");
+const avatarFileEl  = document.getElementById("avatar-file")  || document.getElementById("profile-file");
+const saveAvatarBtn = document.getElementById("save-avatar")  || document.getElementById("profile-upload");
 const profileNickEl   = document.getElementById("profile-nickname"); // 닉네임 텍스트
 const profileEmailEl  = document.getElementById("profile-email");    // 이메일 텍스트
 const userLevelEl     = document.getElementById("user-level");       // "Lv.x"
