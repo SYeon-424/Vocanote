@@ -54,7 +54,7 @@
     }
 
     /* ✅ app.js가 기대하는 버전과 id에 맞춰 로드 */
-    import("./app.js?v=32");
+    import("./app.js?v=33");
   </script>
 </head>
 <body>
@@ -292,11 +292,48 @@
           </label>
     
           <div id="duel-my-point" style="font-size:0.95em; opacity:.8;"></div>
+          <label style="display:flex; gap:8px; align-items:center;">
+            모드:
+            <select id="duel-mode" style="flex:1; min-width:180px;">
+              <option value="mcq_t2m">객관식 (단어→뜻)</option>
+              <option value="mcq_m2t">객관식 (뜻→단어)</option>
+              <option value="free_m2t">서술형 (뜻→단어)</option>
+            </select>
+          </label>
+          
+          <label style="display:flex; gap:8px; align-items:center;">
+            라운드:
+            <input id="duel-rounds" type="number" min="3" max="50" value="10" style="width:100px;">
+          </label>
+          
+          <label style="display:flex; gap:8px; align-items:center;">
+            제한 시간(초):
+            <input id="duel-timer" type="number" min="3" max="120" value="10" style="width:100px;">
+          </label>
         </div>
     
         <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:14px;">
           <button id="duel-cancel">취소</button>
           <button id="duel-confirm" style="font-weight:700;">대결 시작</button>
+        </div>
+      </div>
+    </div>
+        <!-- 상대에게서 온 대결 신청 알림 모달 -->
+    <div id="duel-incoming-modal" class="hidden"
+         style="position:fixed; inset:0; display:flex; align-items:center; justify-content:center; background:#0008; z-index:10001;">
+      <div style="background:#fff; color:#000; max-width:460px; width:92%; border-radius:12px; padding:16px; box-shadow:0 10px 30px #0006;">
+        <h3 style="margin:0 0 12px;">대결 신청이 도착했어요</h3>
+        <div style="display:flex; flex-direction:column; gap:8px;">
+          <div>상대: <b id="inc-opponent-name">-</b></div>
+          <div>단어장: <b id="inc-book-name">-</b></div>
+          <div>모드: <b id="inc-mode">-</b></div>
+          <div>라운드: <b id="inc-rounds">-</b></div>
+          <div>시간: <b id="inc-timer">-</b>초</div>
+          <div>배팅: <b id="inc-stake">-</b> 포인트</div>
+        </div>
+        <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:14px;">
+          <button id="inc-decline">거절</button>
+          <button id="inc-accept" style="font-weight:700;">수락</button>
         </div>
       </div>
     </div>
