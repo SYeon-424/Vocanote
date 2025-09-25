@@ -144,6 +144,23 @@ const duelCancelBtn = document.getElementById("duel-cancel");
 const duelConfirmBtn= document.getElementById("duel-confirm");
 const duelCountdownEl = document.getElementById("duel-countdown");
 
+// ==== 대결 모달 DOM (확장) ====
+const duelModeEl     = document.getElementById("duel-mode");
+const duelRoundsEl   = document.getElementById("duel-rounds");
+const duelTimerEl    = document.getElementById("duel-timer");
+const duelMyPointEl  = document.getElementById("duel-my-point");
+
+// ==== 수락 모달 DOM ====
+const incModalEl     = document.getElementById("duel-incoming-modal");
+const incOppNameEl   = document.getElementById("inc-opponent-name");
+const incBookNameEl  = document.getElementById("inc-book-name");
+const incModeEl      = document.getElementById("inc-mode");
+const incRoundsEl    = document.getElementById("inc-rounds");
+const incTimerEl     = document.getElementById("inc-timer");
+const incStakeEl     = document.getElementById("inc-stake");
+const incAcceptBtn   = document.getElementById("inc-accept");
+const incDeclineBtn  = document.getElementById("inc-decline");
+
 // ===================== 상태 =====================
 let unsubBooks = null;
 let unsubWords = null;
@@ -421,7 +438,6 @@ function startWordsLive() {
     wordListEl.innerHTML = "";
     snap.forEach((d) => {
       const w = { id: d.id, ...d.data() };
-      groupBooksCache.push({ id: d.id, name: w.name, ownerId: w.ownerId }); // ✅ 캐시 저장
       wordsCache.push(w);
 
       const li = document.createElement("li");
@@ -927,9 +943,11 @@ function startGBooksLive(gid) {
   const qBooks = query(collection(db, "groups", gid, "vocabBooks"), orderBy("createdAt","desc"));
   unsubGBooks = onSnapshot(qBooks, (snap) => {
     gBookListEl.innerHTML = "";
+    groupBooksCache = []; // 그룹 단어장 캐시 리셋
     snap.forEach(d => {
       const b = { id: d.id, ...d.data() }; // {name, ownerId}
       const li = document.createElement("li");
+      groupBooksCache.push({ id: b.id, name: b.name, ownerId: b.ownerId });///////////////////////////////////////////////////////////////////
 
       const label = document.createElement("span");
       label.textContent = `${b.name}`;
