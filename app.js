@@ -1350,16 +1350,16 @@ async function loadWordsForMatch(gid, bookId){
 }
 
 // (1) 매치 생성 (모드 지원)
-async function createStakeMatchWithMode({ gid, bookId, timer, rounds, stake, oppo, mode }){
+async function createStakeMatchWithMode({ gid, bookId, timer, rounds, stake, oppo, mode }) {
   const me = auth.currentUser;
   if (!me) throw new Error("로그인이 필요합니다.");
 
   // 단어 준비
   const wordsSnap = await getDocs(collection(db, "groups", gid, "vocabBooks", bookId, "words"));
-  const words = wordsSnap.docs.map(d=>({ id:d.id, ...d.data() }));
+  const words = wordsSnap.docs.map(d => ({ id: d.id, ...d.data() }));
   if (words.length < 3) throw new Error("단어가 3개 이상 있어야 대결 가능합니다.");
-  const order = shuffle(words.map(w=>w.id)).slice(0, rounds);
-  const wordsById = Object.fromEntries(words.map(w=>[w.id, w]));
+  const order = shuffle(words.map(w => w.id)).slice(0, rounds);
+  const wordsById = Object.fromEntries(words.map(w => [w.id, w]));
 
   // 매치 문서
   const matchesCol = collection(db, "groups", gid, "matches");
@@ -1367,32 +1367,34 @@ async function createStakeMatchWithMode({ gid, bookId, timer, rounds, stake, opp
     gid,
     createdAt: Date.now(),
     status: "waiting",
-    settings: { bookId, mode: (mode||"mcq_t2m"), timer, rounds, stake },
+    round: 0,                                // ✅ 서버가 라운드를 단일 필드로 관리
+    settings: { bookId, mode: (mode || "mcq_t2m"), timer, rounds, stake },
     stake: stake,
-    pot: stake*2,
+    pot: stake * 2,
     settled: false,
     players: {
-      p1: { uid: me.uid,   nick: (me.displayName || me.email), score: 0, ready: true,  idx: 0 },
-      p2: { uid: oppo.uid, nick: oppo.nick,                     score: 0, ready: false, idx: 0 }
+      p1: { uid: me.uid, nick: (me.displayName || me.email), score: 0, ready: true,  idx: 0 },
+      p2: { uid: oppo.uid, nick: oppo.nick,                   score: 0, ready: false, idx: 0 }
     },
     questions: order
   });
 
-  // 로컬 세팅
+  // 로컬 상태
   duel = {
     mid: midRef.id, gid,
     me: { uid: me.uid, nick: (me.displayName || me.email) },
     oppo,
-    settings: { bookId, mode:(mode||"mcq_t2m"), timer, rounds, stake },
+    settings: { bookId, mode: (mode || "mcq_t2m"), timer, rounds, stake },
     questions: order, idx: 0,
     remain: 0, tick: null, unsub: null,
-    wordsById, roundLocked:false
+    wordsById, roundLocked: false
   };
-  await setDoc(doc(db, "groups", gid, "matches", midRef.id, "answers", me.uid), { byRound:{} }, { merge:true });
+  await setDoc(doc(db, "groups", gid, "matches", midRef.id, "answers", me.uid), { byRound: {} }, { merge: true });
 
   startDuelListener(midRef.path, /*host=*/true);
   return midRef.id;
 }
+
 // 호환용 단축
 async function createStakeMatch(args){ return createStakeMatchWithMode({ ...args, mode:"mcq_t2m" }); }
 
@@ -1407,44 +1409,32 @@ function startDuelListener(matchPath, host = false) {
       if (!snap.exists()) return;
       const m = snap.data();
 
-      // --- 대기 상태 ---
+      // --- 대기(waiting) ---
       if (m.status === "waiting") {
         const p2 = m.players?.p2;
 
-        // 수락자(p2) 단말: ready 처리 + 단어 캐시 + UI 열기
+        // 수락자(p2) 단말: ready 처리 + 단어 캐시
         if (p2 && p2.uid === auth.currentUser?.uid && !p2.ready) {
           await updateDoc(matchRef, { "players.p2.ready": true });
-
           await setDoc(
             doc(db, "groups", m.gid, "matches", matchRef.id, "answers", auth.currentUser.uid),
             { byRound: {} },
             { merge: true }
           );
-
-          const wordsSnap = await getDocs(
-            collection(db, "groups", m.gid, "vocabBooks", m.settings.bookId, "words")
-          );
-          duel.wordsById = Object.fromEntries(
-            wordsSnap.docs.map((d) => [d.id, { id: d.id, ...d.data() }])
-          );
+          const wordsSnap = await getDocs(collection(db, "groups", m.gid, "vocabBooks", m.settings.bookId, "words"));
+          duel.wordsById = Object.fromEntries(wordsSnap.docs.map(d => [d.id, { id: d.id, ...d.data() }]));
 
           duel.mid = matchRef.id;
           duel.gid = m.gid;
-          duel.me = {
-            uid: auth.currentUser.uid,
-            nick: auth.currentUser.displayName || auth.currentUser.email,
-          };
+          duel.me = { uid: auth.currentUser.uid, nick: auth.currentUser.displayName || auth.currentUser.email };
           duel.oppo = { uid: m.players.p1.uid, nick: m.players.p1.nick };
           duel.settings = m.settings;
           duel.questions = m.questions;
           duel.idx = 0;
           duel.roundLocked = false;
-
-          // UI 보장
-          await ensureDuelUI(m.gid, m.settings.bookId);
         }
 
-        // 호스트: 둘 다 ready면 시작
+        // 호스트: 둘 다 ready면 플레이 시작 + round 보장
         if (
           host &&
           m.players?.p1?.uid === auth.currentUser?.uid &&
@@ -1454,56 +1444,51 @@ function startDuelListener(matchPath, host = false) {
           await updateDoc(matchRef, {
             status: "playing",
             startedAt: Date.now(),
+            round: typeof m.round === "number" ? m.round : 0, // ✅ round 초기화 보장
             "players.p1.idx": 0,
-            "players.p2.idx": 0,
+            "players.p2.idx": 0
           });
         }
         return;
       }
 
-      // --- 플레이 중 ---
+      // --- 플레이(playing) ---
       if (m.status === "playing") {
-        // UI 확실히 열어두기
-        await ensureDuelUI(m.gid, m.settings.bookId);
+        // 첫 라운드: 3-2-1 후 시작
+        const serverRound = (typeof m.round === "number")
+          ? m.round
+          : Math.min(m.players?.p1?.idx ?? 0, m.players?.p2?.idx ?? 0);
 
-        // 첫 라운드: 3-2-1 카운트다운 후 시작
-        if (duel.idx === 0 && !duel._counted) {
+        if (duel.idx === 0 && !duel._counted && serverRound === 0) {
           duel._counted = true;
           startCountdown(3, () => startDuelRound());
           return;
         }
 
-        // 서버 라운드(두 플레이어 idx의 최소값)와 동기화
-        const round = Math.min(m.players?.p1?.idx ?? 0, m.players?.p2?.idx ?? 0);
-
-        // 🚩 핵심 수정: 라운드가 증가했으면, 누가 눌렀건 간에
-        // 로컬 락/타이머를 정리하고 다음 라운드로 강제 진입
-        if (round > duel.idx) {
-          duel.roundLocked = false;                 // <- 락 해제
-          if (duel.tick) { clearInterval(duel.tick); duel.tick = null; } // 남은 타이머 제거
-          duel.idx = round;
+        // ✅ 핵심: 서버 round가 증가하면, 누가 눌렀든 간에 락을 풀고 다음 라운드로
+        if (serverRound > duel.idx) {
+          duel.roundLocked = false;
+          if (duel.tick) { clearInterval(duel.tick); duel.tick = null; }
+          duel.idx = serverRound;
           startDuelRound();
         }
 
-        // 마지막 라운드 종료 처리
-        if (round >= (m.settings?.rounds || 10)) {
+        // 종료 조건
+        if (serverRound >= (m.settings?.rounds || 10)) {
           updateDoc(matchRef, { status: "finished", finishedAt: Date.now() }).catch(() => {});
         }
         return;
       }
 
-      // --- 종료 ---
+      // --- 종료(finished) ---
       if (m.status === "finished") {
         if (duel.tick) { clearInterval(duel.tick); duel.tick = null; }
         settleStake(m).catch(() => {});
-
         const s1 = m.players?.p1?.score ?? 0;
         const s2 = m.players?.p2?.score ?? 0;
         const myIsP1 = m.players?.p1?.uid === auth.currentUser?.uid;
         const iWon = (s1 === s2) ? null : (myIsP1 ? s1 > s2 : s2 > s1);
-
         alert((s1 === s2) ? `무승부! (${s1}:${s2})` : (iWon ? `🎉 승리! (${s1}:${s2})` : `패배… (${s1}:${s2})`));
-
         if (duel.unsub) { duel.unsub(); duel.unsub = null; }
       }
     },
@@ -1513,6 +1498,7 @@ function startDuelListener(matchPath, host = false) {
     }
   );
 }
+
 
 
 
@@ -1640,50 +1626,66 @@ async function startDuelRound(){
 }
 
 
-async function resolveWinner(winnerUid){
+async function resolveWinner(winnerUid) {
   if (duel.roundLocked) return;
   duel.roundLocked = true;
-  if (duel.tick) { clearInterval(duel.tick); duel.tick=null; }
+  if (duel.tick) { clearInterval(duel.tick); duel.tick = null; }
 
   const matchRef = doc(db, "groups", duel.gid, "matches", duel.mid);
-  await runTransaction(db, async (tx)=>{
+
+  await runTransaction(db, async (tx) => {
     const mSnap = await tx.get(matchRef);
     if (!mSnap.exists()) return;
     const m = mSnap.data();
-    if (m.status!=="playing") return;
-    const round = Math.min(m.players?.p1?.idx ?? 0, m.players?.p2?.idx ?? 0);
+    if (m.status !== "playing") return;
+
     const p1idx = m.players?.p1?.idx ?? 0;
     const p2idx = m.players?.p2?.idx ?? 0;
-    if (p1idx !== p2idx || round !== duel.idx) return;
+    const serverRound = (typeof m.round === "number") ? m.round : Math.min(p1idx, p2idx);
+
+    // 현재 라운드와 일치하는 승리만 처리
+    if (serverRound !== duel.idx) return;
 
     const isP1 = m.players?.p1?.uid === winnerUid;
     const scorePath = isP1 ? "players.p1.score" : "players.p2.score";
+    const nextRound = serverRound + 1;
 
     tx.update(matchRef, {
-      [scorePath]: (isP1 ? (m.players.p1.score||0) : (m.players.p2.score||0)) + 1,
+      [scorePath]: (isP1 ? (m.players.p1.score || 0) : (m.players.p2.score || 0)) + 1,
       "players.p1.idx": p1idx + 1,
-      "players.p2.idx": p2idx + 1
+      "players.p2.idx": p2idx + 1,
+      "round": nextRound                     // ✅ 서버 라운드 동기 증가
     });
-  }).catch(e=>console.error(e));
+  }).catch(e => console.error(e));
 }
 
-async function advanceRound(){
+
+async function advanceRound() {
   duel.roundLocked = true;
   const matchRef = doc(db, "groups", duel.gid, "matches", duel.mid);
-  await runTransaction(db, async (tx)=>{
+
+  await runTransaction(db, async (tx) => {
     const mSnap = await tx.get(matchRef);
     if (!mSnap.exists()) return;
     const m = mSnap.data();
-    if (m.status!=="playing") return;
+    if (m.status !== "playing") return;
+
     const p1idx = m.players?.p1?.idx ?? 0;
     const p2idx = m.players?.p2?.idx ?? 0;
+    // 동시 증가 보장: 둘의 idx가 같은 타이밍에만 라운드 진행
     if (p1idx !== p2idx) return;
+
+    const serverRound = (typeof m.round === "number") ? m.round : Math.min(p1idx, p2idx);
+    const nextRound = serverRound + 1;
+
     tx.update(matchRef, {
       "players.p1.idx": p1idx + 1,
-      "players.p2.idx": p2idx + 1
+      "players.p2.idx": p2idx + 1,
+      "round": nextRound                  // ✅ 서버 라운드 증가
     });
-  }).catch(e=>console.error(e));
+  }).catch(e => console.error(e));
 }
+
 
 async function settleStake(m){
   const me = auth.currentUser; if (!me) return;
