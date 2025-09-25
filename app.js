@@ -1303,8 +1303,20 @@ async function adjustUserExp(uid, delta){
 // ===================== 스피드퀴즈 대결 =====================
 // --- 내 stake(포인트) 선차감: 본인 문서만 수정 ---
 async function requireAndHoldMyStake(stake){
-  const me = auth.currentUser; if (!me) throw new Error("로그인이 필요합니다.");
+  const me = auth.currentUser; 
+  if (!me) throw new Error("로그인이 필요합니다.");
+
+  const meRef = doc(db, "users", me.uid);
+  await runTransaction(db, async (tx) => {
+    const s = await tx.get(meRef);
+    if (!s.exists()) throw new Error("내 사용자 문서 없음");
+    const cur = (s.data().exp | 0);
+    const need = (stake | 0);
+    if (cur < need) throw new Error("내 포인트가 부족합니다.");
+    tx.update(meRef, { exp: cur - need });
+  });
 }
+
 // (1) 매치 생성 (모드 지원)
 async function createStakeMatchWithMode({ gid, bookId, timer, rounds, stake, oppo, mode }){
   const me = auth.currentUser;
