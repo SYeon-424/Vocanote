@@ -1317,6 +1317,13 @@ async function requireAndHoldMyStake(stake){
   });
 }
 
+// 단어 캐시 로드 (없으면 가져오고, 있으면 그대로)
+async function loadWordsForMatch(gid, bookId){
+  const wordsSnap = await getDocs(collection(db, "groups", gid, "vocabBooks", bookId, "words"));
+  const wordsById = Object.fromEntries(wordsSnap.docs.map(d=>[d.id, { id:d.id, ...d.data() }]));
+  return wordsById;
+}
+
 // (1) 매치 생성 (모드 지원)
 async function createStakeMatchWithMode({ gid, bookId, timer, rounds, stake, oppo, mode }){
   const me = auth.currentUser;
@@ -1393,21 +1400,40 @@ function startDuelListener(matchPath, host=false){
     }
 
     if (m.status === "playing") {
+      // ✅ 단어 캐시가 비어있으면 즉시 로드
+      if (!duel.wordsById || Object.keys(duel.wordsById).length === 0) {
+        try {
+          duel.wordsById = await loadWordsForMatch(m.gid, m.settings.bookId);
+        } catch {}
+      }
+      // ✅ 질문 목록 동기화 (혹시 비어있다면 서버 기준으로 세팅)
+      if (!duel.questions || duel.questions.length === 0) {
+        duel.questions = Array.isArray(m.questions) ? m.questions.slice() : [];
+      }
+    
+      // ✅ 첫 라운드 진입: 카운트다운 후 라운드 시작
       if (duel.idx === 0 && !duel._counted) {
         duel._counted = true;
         startCountdown(3, ()=> startDuelRound());
         return;
       }
+    
+      // ✅ 양쪽 idx의 최소값이 "현재 라운드"
       const round = Math.min(m.players?.p1?.idx ?? 0, m.players?.p2?.idx ?? 0);
+    
+      // 새 라운드로 넘어가면 화면 갱신
       if (round !== duel.idx && !duel.roundLocked) {
         duel.idx = round;
         startDuelRound();
       }
-      if (round >= (m.settings?.rounds||10)) {
+    
+      // 라운드 모두 소진 시 종료
+      if (round >= (m.settings?.rounds || 10)) {
         updateDoc(matchRef, { status:"finished", finishedAt: Date.now() }).catch(()=>{});
       }
       return;
     }
+
 
     if (m.status === "finished") {
       if (duel.tick) { clearInterval(duel.tick); duel.tick=null; }
@@ -1443,23 +1469,61 @@ function startCountdown(n, onDone){
   duelCountdownEl.classList.remove("hidden");
 }
 
-function startDuelRound(){
+async function startDuelRound(){
   duel.roundLocked = false;
 
+  // ✅ 타이머 기본값 보장
+  const mode = duel.settings?.mode || "mcq_t2m";
+  const timerSec = Number(duel.settings?.timer) || 10;
+
+  // ✅ 질문/단어 로드 가드
+  if (!duel.questions || duel.questions.length === 0) {
+    // 서버에서 한번 더 동기화 시도
+    try {
+      const mSnap = await getDoc(doc(db, "groups", duel.gid, "matches", duel.mid));
+      if (mSnap.exists()) {
+        const m = mSnap.data();
+        duel.questions = Array.isArray(m.questions) ? m.questions.slice() : [];
+        if (!duel.wordsById || Object.keys(duel.wordsById).length === 0) {
+          duel.wordsById = await loadWordsForMatch(duel.gid, m.settings.bookId);
+        }
+      }
+    } catch {}
+  }
+
+  const wid = duel.questions?.[duel.idx];
+  if (!wid) { console.warn("질문 없음"); return; }
+
+  if (!duel.wordsById || !duel.wordsById[wid]) {
+    // 캐시 재로딩 시도
+    try {
+      const mSnap = await getDoc(doc(db, "groups", duel.gid, "matches", duel.mid));
+      if (mSnap.exists()) {
+        const m = mSnap.data();
+        duel.wordsById = await loadWordsForMatch(duel.gid, m.settings.bookId);
+      }
+    } catch {}
+    if (!duel.wordsById || !duel.wordsById[wid]) {
+      console.warn("단어 캐시 미로딩");
+      return;
+    }
+  }
+
+  const w = duel.wordsById[wid];
+
+  // 타이머 스타트
   if (duel.tick) { clearInterval(duel.tick); duel.tick=null; }
-  duel.remain = duel.settings.timer;
+  duel.remain = timerSec;
   const tick = setInterval(()=>{
     duel.remain -= 1;
     if (duel.remain <= 0) {
       clearInterval(tick); duel.tick=null;
-      if (!duel.roundLocked) advanceRound(null);
+      if (!duel.roundLocked) advanceRound();
     }
   }, 1000);
   duel.tick = tick;
 
-  const wid = duel.questions[duel.idx];
-  const w = duel.wordsById[wid];
-
+  // UI 렌더링
   const area = document.getElementById("gquiz-area");
   const qEl = document.getElementById("gquiz-q");
   const ch = document.getElementById("gquiz-choices");
@@ -1469,20 +1533,20 @@ function startDuelRound(){
   const ansBtn= document.getElementById("gsubmit-answer");
 
   if (area) show(area);
-  const mode = duel.settings?.mode || "mcq_t2m";
   if (qEl) {
     if (mode === "mcq_m2t" || mode === "free_m2t") qEl.textContent = w.meaning;
     else qEl.textContent = w.term;
   }
   if (fb) fb.textContent = "";
 
-  // 보기/입력 토글
   if (mode.startsWith("mcq_")) {
     if (freeBox) hide(freeBox);
     if (ch) {
       ch.classList.remove("hidden");
       ch.innerHTML = "";
-      const pool = shuffle(Object.values(duel.wordsById).filter(x=>x.id!==w.id)).slice(0,2);
+      // 보기 구성
+      const others = Object.values(duel.wordsById).filter(x=>x.id!==w.id);
+      const pool = shuffle(others).slice(0, Math.max(2, Math.min(others.length, 2)));
       const options = shuffle([w, ...pool]);
       options.forEach(opt=>{
         const b = document.createElement("button");
@@ -1509,6 +1573,7 @@ function startDuelRound(){
     }
   }
 }
+
 
 async function resolveWinner(winnerUid){
   if (duel.roundLocked) return;
