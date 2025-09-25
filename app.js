@@ -151,6 +151,7 @@ let advanceTimer = null;
 let mcqRemain = 0;
 let mcqTick = null;
 let testHistory = [];
+let mcqDuration = 10;   // 개인 객관식 문제 제한시간(초)
 
 /* 그룹 상태 */
 let unsubMyGroups = null;
@@ -169,6 +170,7 @@ let gTestRunning=false, gTestMode="mcq_t2m", gQuizOrder=[], gQuizIdx=0;
 let gAnswered=false, gAwaiting=false, gAdvanceTimer=null;
 let gMcqRemain=0, gMcqTick=null;
 let gHistory=[];
+let gMcqDuration = 10;  // 그룹 객관식 문제 제한시간(초)
 
 // ===================== 유틸 =====================
 const shuffle = (arr) => { const a = arr.slice(); for (let i=a.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [a[i],a[j]]=[a[j],a[i]]; } return a; };
@@ -466,6 +468,13 @@ function activateTab(which) {
 startTestBtn.onclick = () => {
   if (!wordsCache.length) return alert("단어가 없습니다. 단어를 먼저 추가해주세요.");
   testMode = testModeSel.value;
+  // 사용자 지정 타이머(초) 반영
+  const timerInput = document.getElementById("test-timer");
+  if (timerInput) {
+    const v = parseInt(timerInput.value, 10);
+    // 최소/최대 안전 가드
+    if (!isNaN(v)) mcqDuration = Math.min(120, Math.max(3, v));
+  }
   if ((testMode === "mcq_t2m" || testMode === "mcq_m2t") && wordsCache.length < 3) return alert("객관식은 최소 3개 단어가 필요합니다.");
   testRunning = true; answered = false; awaitingAdvance = false; testHistory = [];
   quizOrder = shuffle(wordsCache.map((_, i) => i)); quizIdx = 0;
@@ -525,7 +534,7 @@ function renderQuestion() {
   }
 }
 function startMcqTimer(w){
-  mcqRemain=10; updateStatus();
+  mcqRemain = mcqDuration; updateStatus();
   mcqTick=setInterval(()=>{
     if (!testRunning) { clearInterval(mcqTick); mcqTick=null; return; }
     if (answered) { clearInterval(mcqTick); mcqTick=null; return; }
@@ -1085,6 +1094,12 @@ function gActivateTab(which) {
 gStartTestBtn.onclick = () => {
   if (!gWordsCache.length) return alert("단어가 없습니다.");
   gTestMode = gTestModeSel.value;
+  // 그룹용 사용자 지정 타이머(초) 반영
+  const gTimerInput = document.getElementById("gtest-timer");
+  if (gTimerInput) {
+    const v = parseInt(gTimerInput.value, 10);
+    if (!isNaN(v)) gMcqDuration = Math.min(120, Math.max(3, v));
+  }
   if ((gTestMode==="mcq_t2m"||gTestMode==="mcq_m2t") && gWordsCache.length<3) return alert("객관식은 최소 3개 단어가 필요합니다.");
   gTestRunning=true; gAnswered=false; gAwaiting=false; gHistory=[];
   gQuizOrder = shuffle(gWordsCache.map((_,i)=>i)); gQuizIdx=0;
@@ -1120,7 +1135,7 @@ function gRenderQ(){
   else if (gTestMode==="mcq_t2m"){ gQuizQ.textContent= w.term; hide(gQuizFreeBox); show(gQuizChoices); hide(gSubmitAnswerBtn); gRenderChoices(w,"meaning"); gStartMcqTimer(w); }
   else { gQuizQ.textContent= w.meaning; hide(gQuizFreeBox); show(gQuizChoices); hide(gSubmitAnswerBtn); gRenderChoices(w,"term"); gStartMcqTimer(w); }
 }
-function gStartMcqTimer(w){ gMcqRemain=10; gUpdateStatus(); gMcqTick=setInterval(()=>{ if(!gTestRunning||gAnswered){clearInterval(gMcqTick); gMcqTick=null; return;} gMcqRemain-=1; gUpdateStatus(); if(gMcqRemain<=0){ clearInterval(gMcqTick); gMcqTick=null; if(!gAnswered && !gAwaiting){ gAnswered=true; gPushHistory(w,false,"(시간초과)"); gShowFeedback(false, gCorrectText(w)); playSound("timeout"); gScheduleNext(); } } },1000); }
+function gStartMcqTimer(w){ gMcqRemain = gMcqDuration; gUpdateStatus(); gMcqTick=setInterval(()=>{ if(!gTestRunning||gAnswered){clearInterval(gMcqTick); gMcqTick=null; return;} gMcqRemain-=1; gUpdateStatus(); if(gMcqRemain<=0){ clearInterval(gMcqTick); gMcqTick=null; if(!gAnswered && !gAwaiting){ gAnswered=true; gPushHistory(w,false,"(시간초과)"); gShowFeedback(false, gCorrectText(w)); playSound("timeout"); gScheduleNext(); } } },1000); }
 function gRenderChoices(correct, field){
   const pool = shuffle(gWordsCache.filter(x=>x.id!==correct.id)).slice(0,2);
   const options = shuffle([correct, ...pool]);
