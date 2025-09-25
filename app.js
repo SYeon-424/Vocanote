@@ -990,6 +990,21 @@ function openGBook(gid, b) {
   startGWordsLive();
   gResetTestUI(true);
   [gWordTermEl, gWordMeaningEl, gAddWordBtn].forEach(el => setDisabled(el, !gIsOwner));
+  // === 그룹 타이머 입력 바인딩 ===
+  const gTimerInput = document.getElementById("gtest-timer");
+  if (gTimerInput) {
+    // 화면 열 때 현재 설정값을 보여주기
+    gTimerInput.value = String(gMcqDuration);
+    // 입력이 바뀔 때마다 전역 설정값 갱신
+    const syncTimer = () => {
+      const v = parseInt(gTimerInput.value, 10);
+      if (!isNaN(v)) {
+        gMcqDuration = Math.min(120, Math.max(3, v));
+      }
+    };
+    gTimerInput.addEventListener("change", syncTimer);
+    gTimerInput.addEventListener("input", syncTimer);
+  }
 }
 backToGBooksBtn.onclick = () => {
   if (unsubGWords) unsubGWords();
