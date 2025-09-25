@@ -1403,107 +1403,127 @@ function startDuelListener(matchPath, host = false) {
   const matchRef = doc(db, matchPath);
   if (duel.unsub) duel.unsub();
 
-  duel.unsub = onSnapshot(
-    matchRef,
-    async (snap) => {
-      if (!snap.exists()) return;
-      const m = snap.data();
+  duel._activeRound = undefined;
+  duel._counted = false;
 
-      // ----- waiting -----
-      if (m.status === "waiting") {
-        const p2 = m.players?.p2;
-        if (p2 && p2.uid === auth.currentUser?.uid && !p2.ready) {
-          await updateDoc(matchRef, { "players.p2.ready": true });
-          await setDoc(doc(db, "groups", m.gid, "matches", matchRef.id, "answers", auth.currentUser.uid), { byRound: {} }, { merge: true });
+  duel.unsub = onSnapshot(matchRef, async (snap) => {
+    if (!snap.exists()) return;
+    const m = snap.data();
 
-          const wordsSnap = await getDocs(collection(db, "groups", m.gid, "vocabBooks", m.settings.bookId, "words"));
-          duel.wordsById = Object.fromEntries(wordsSnap.docs.map(d => [d.id, { id: d.id, ...d.data() }]));
+    // -------- waiting --------
+    if (m.status === "waiting") {
+      const p2 = m.players?.p2;
 
-          duel.mid = matchRef.id;
-          duel.gid = m.gid;
-          duel.me = { uid: auth.currentUser.uid, nick: auth.currentUser.displayName || auth.currentUser.email };
-          duel.oppo = { uid: m.players.p1.uid, nick: m.players.p1.nick };
-          duel.settings = m.settings;
-          duel.questions = m.questions;
-          duel.idx = 0;
-          duel.roundLocked = false;
-        }
+      // p2 최초 진입 준비
+      if (p2 && p2.uid === auth.currentUser?.uid && !p2.ready) {
+        await updateDoc(matchRef, { "players.p2.ready": true });
+        await setDoc(doc(db, "groups", m.gid, "matches", matchRef.id, "answers", auth.currentUser.uid),
+          { byRound:{} }, { merge:true });
 
-        if (host &&
-            m.players?.p1?.uid === auth.currentUser?.uid &&
-            m.players?.p1?.ready &&
-            m.players?.p2?.ready) {
-          await updateDoc(matchRef, {
-            status: "playing",
-            startedAt: Date.now(),
-            round: typeof m.round === "number" ? m.round : 0,
-            "players.p1.idx": 0,
-            "players.p2.idx": 0
-          });
-        }
-        return;
+        const wordsSnap = await getDocs(
+          collection(db, "groups", m.gid, "vocabBooks", m.settings.bookId, "words")
+        );
+        duel.wordsById = Object.fromEntries(wordsSnap.docs.map(d => [d.id, { id:d.id, ...d.data() }]));
+        duel.mid = matchRef.id; duel.gid = m.gid;
+        duel.me  = { uid: auth.currentUser.uid, nick: auth.currentUser.displayName || auth.currentUser.email };
+        duel.oppo= { uid: m.players.p1.uid,     nick: m.players.p1.nick };
+        duel.settings = m.settings; duel.questions = m.questions;
+        duel.idx = 0; duel.roundLocked = false;
       }
 
-      // ----- playing -----
-      if (m.status === "playing") {
-        const p1idx = m.players?.p1?.idx ?? 0;
-        const p2idx = m.players?.p2?.idx ?? 0;
-        const derived = Math.min(p1idx, p2idx);
-        // ✅ 라운드는 '서버 round'와 '파생 라운드' 중 큰 값 사용 (round가 못 올라가도 진행됨)
-        const serverRound = (typeof m.round === "number") ? Math.max(m.round, derived) : derived;
-
-        // 첫 라운드만 카운트다운
-        if (duel.idx === 0 && !duel._counted && serverRound === 0) {
-          duel._counted = true;
-          startCountdown(3, () => startDuelRound());
-          return;
-        }
-
-        // 서버 라운드가 증가했으면 모두 다음 라운드로
-        if (serverRound > duel.idx) {
-          duel.roundLocked = false;
-          if (duel.tick) { clearInterval(duel.tick); duel.tick = null; }
-          duel.idx = serverRound;
-          startDuelRound();
-        }
-
-        // 종료
-        const total = m.settings?.rounds || 10;
-        if (serverRound >= total) {
-          updateDoc(matchRef, { status: "finished", finishedAt: Date.now() }).catch(() => {});
-        }
-        return;
+      // host가 시작 전환
+      if (host &&
+          m.players?.p1?.uid === auth.currentUser?.uid &&
+          m.players?.p1?.ready && m.players?.p2?.ready) {
+        await updateDoc(matchRef, {
+          status: "playing",
+          startedAt: Date.now(),
+          round: typeof m.round === "number" ? m.round : 0,
+          "players.p1.idx": 0,
+          "players.p2.idx": 0
+        });
       }
-
-      // ----- finished -----
-      if (m.status === "finished") {
-        if (duel.tick) { clearInterval(duel.tick); duel.tick = null; }
-        settleStake(m).catch(() => {});
-        const s1 = m.players?.p1?.score ?? 0;
-        const s2 = m.players?.p2?.score ?? 0;
-        const myIsP1 = m.players?.p1?.uid === auth.currentUser?.uid;
-        const iWon = (s1 === s2) ? null : (myIsP1 ? s1 > s2 : s2 > s1);
-        alert((s1 === s2) ? `무승부! (${s1}:${s2})` : (iWon ? `🎉 승리! (${s1}:${s2})` : `패배… (${s1}:${s2})`));
-        if (duel.unsub) { duel.unsub(); duel.unsub = null; }
-      }
-    },
-    (err) => {
-      console.error(err);
-      alert("대결 동기화 중 오류: " + (err?.message || err));
+      return;
     }
-  );
+
+    // -------- playing --------
+    if (m.status === "playing") {
+      const total = m.settings?.rounds || 10;
+      const p1idx = m.players?.p1?.idx ?? 0;
+      const p2idx = m.players?.p2?.idx ?? 0;
+      const derivedRound = Math.min(p1idx, p2idx);
+      const serverRound  = (typeof m.round === "number") ? Math.max(m.round, derivedRound) : derivedRound;
+
+      // 라운드 0에서만 카운트다운 → 끝나면 강제 렌더
+      if (!duel._counted && serverRound === 0) {
+        duel._counted = true;
+        startCountdown(3, () => {}); // onDone은 forceRenderCurrentRound가 처리
+        return;
+      }
+
+      // 라운드가 바뀌면 즉시 강제 렌더
+      if (serverRound !== duel._activeRound) {
+        duel._activeRound = serverRound;
+        duel.idx = serverRound;
+        forceRenderCurrentRound();
+      }
+
+      if (serverRound >= total) {
+        updateDoc(matchRef, { status: "finished", finishedAt: Date.now() }).catch(()=>{});
+      }
+      return;
+    }
+
+    // -------- finished --------
+    if (m.status === "finished") {
+      if (duel.tick) { clearInterval(duel.tick); duel.tick=null; }
+      settleStake(m).catch(()=>{});
+      const s1 = m.players?.p1?.score ?? 0;
+      const s2 = m.players?.p2?.score ?? 0;
+      const myIsP1 = m.players?.p1?.uid === auth.currentUser?.uid;
+      const iWon = (s1===s2) ? null : (myIsP1 ? s1>s2 : s2>s1);
+      alert((s1===s2) ? `무승부! (${s1}:${s2})` : (iWon ? `🎉 승리! (${s1}:${s2})` : `패배… (${s1}:${s2})`));
+      if (duel.unsub) { duel.unsub(); duel.unsub=null; }
+    }
+  });
 }
 
-function startCountdown(n, onDone){
+async function forceRenderCurrentRound() {
+  // DOM이 아직 안 열렸으면 조금 뒤에 다시
+  const area = document.getElementById("gquiz-area");
+  if (!area) { setTimeout(forceRenderCurrentRound, 60); return; }
+
+  // 단어 캐시가 아직이면 조금 뒤 재시도
+  if (!duel.wordsById || !Object.keys(duel.wordsById).length) {
+    try {
+      const wordsSnap = await getDocs(
+        collection(db, "groups", duel.gid, "vocabBooks", duel.settings.bookId, "words")
+      );
+      duel.wordsById = Object.fromEntries(wordsSnap.docs.map(d => [d.id, { id: d.id, ...d.data() }]));
+    } catch {}
+    if (!duel.wordsById || !Object.keys(duel.wordsById).length) {
+      setTimeout(forceRenderCurrentRound, 80);
+      return;
+    }
+  }
+
+  // 실제 라운드 그리기
+  startDuelRound(duel.idx);
+}
+
+function startCountdown(n, onDone) {
   show(duelCountdownEl);
-  let k=n;
+  let k = n;
   duelCountdownEl.textContent = String(k);
-  const iv = setInterval(()=>{
+  const iv = setInterval(() => {
     k -= 1;
-    if (k<=0) {
+    if (k <= 0) {
       clearInterval(iv);
       duelCountdownEl.textContent = "";
       duelCountdownEl.classList.add("hidden");
+      // ✅ 카운트다운 종료 직후 바로 강제 렌더
+      forceRenderCurrentRound();
+      // (콜백이 있으면 그대로 호출)
       onDone && onDone();
     } else {
       duelCountdownEl.textContent = String(k);
@@ -1512,77 +1532,72 @@ function startCountdown(n, onDone){
   duelCountdownEl.classList.remove("hidden");
 }
 
-async function startDuelRound() {
+async function startDuelRound(roundNum = duel.idx) {
   duel.roundLocked = false;
+  duel.idx = roundNum;
 
-  // ⛑ 단어 캐시가 비어있을 경우 즉시 로드 (호스트/참가자 모두 안전)
+  // ⛑ 단어 캐시 보강(없으면 즉시 로드)
   if (!duel.wordsById || Object.keys(duel.wordsById).length === 0) {
     try {
-      const wordsSnap = await getDocs(collection(db, "groups", duel.gid, "vocabBooks", duel.settings.bookId, "words"));
+      const wordsSnap = await getDocs(
+        collection(db, "groups", duel.gid, "vocabBooks", duel.settings.bookId, "words")
+      );
       duel.wordsById = Object.fromEntries(wordsSnap.docs.map(d => [d.id, { id: d.id, ...d.data() }]));
     } catch {}
   }
 
-  // 타이머 리셋
+  // 문제 ID/객체 확보 못하면 다음 라운드로 스킵
+  const wid = (duel.questions || [])[duel.idx];
+  const w = duel.wordsById ? duel.wordsById[wid] : null;
+  if (!wid || !w) { await advanceRound(); return; }
+
+  // ⏱ 타이머 리셋
   if (duel.tick) { clearInterval(duel.tick); duel.tick = null; }
   duel.remain = duel.settings.timer;
   duel.tick = setInterval(() => {
     duel.remain -= 1;
     if (duel.remain <= 0) {
       clearInterval(duel.tick); duel.tick = null;
-      if (!duel.roundLocked) advanceRound();
+      if (!duel.roundLocked) advanceRound(); // 시간초과 → 라운드+1
     }
   }, 1000);
 
-  // 현재 문제
-  const wid = duel.questions[duel.idx];
-  const w = duel.wordsById?.[wid];
-  if (!w) {
-    // 캐시에 없으면 강제로 다음 라운드로 스킵(드물지만 보호)
-    if (duel.tick) { clearInterval(duel.tick); duel.tick = null; }
-    await advanceRound();
-    return;
-  }
-
-  // UI 바인딩
-  const area = document.getElementById("gquiz-area");
-  const qEl  = document.getElementById("gquiz-q");
-  const ch   = document.getElementById("gquiz-choices");
-  const fb   = document.getElementById("gquiz-feedback");
-  const freeBox = document.getElementById("gquiz-free");
-  const ansIn   = document.getElementById("gquiz-answer");
-  const ansBtn  = document.getElementById("gsubmit-answer");
-
-  if (area) show(area);
-  if (fb) fb.textContent = "";
+  // ✅ UI 강제 표출
+  const area   = document.getElementById("gquiz-area");
+  const qEl    = document.getElementById("gquiz-q");
+  const ch     = document.getElementById("gquiz-choices");
+  const fb     = document.getElementById("gquiz-feedback");
+  const freeBox= document.getElementById("gquiz-free");
+  const ansIn  = document.getElementById("gquiz-answer");
+  const ansBtn = document.getElementById("gsubmit-answer");
+  area && show(area);
+  fb && (fb.textContent = "");
 
   const mode = duel.settings?.mode || "mcq_t2m";
-  if (qEl) qEl.textContent = (mode === "mcq_m2t" || mode === "free_m2t") ? (w.meaning || "") : (w.term || "");
+  qEl && (qEl.textContent = (mode === "mcq_m2t" || mode === "free_m2t") ? (w.meaning || "") : (w.term || ""));
 
   if (mode.startsWith("mcq_")) {
-    if (freeBox) hide(freeBox);
+    freeBox && hide(freeBox);
     if (ch) {
       ch.classList.remove("hidden");
       ch.innerHTML = "";
-
       const pool = shuffle(Object.values(duel.wordsById).filter(x => x.id !== w.id)).slice(0, 2);
       const options = shuffle([w, ...pool]);
-
-      options.forEach((opt) => {
-        if (!opt) return; // 안전
+      options.forEach(opt => {
+        if (!opt) return;
         const b = document.createElement("button");
         b.textContent = (mode === "mcq_m2t") ? (opt.term || "") : (opt.meaning || "");
         b.onclick = () => {
           if (duel.roundLocked) return;
-          const isCorrect = opt.id === w.id;
-          if (isCorrect) resolveWinner(auth.currentUser.uid);
+          const ok = opt.id === w.id;
+          if (ok) resolveWinner(auth.currentUser.uid); // 정답 → 라운드+1
         };
         ch.appendChild(b);
       });
     }
   } else {
     // free_m2t
-    if (ch) { ch.classList.add("hidden"); ch.innerHTML = ""; }
+    ch && (ch.classList.add("hidden"), (ch.innerHTML = ""));
     if (freeBox && ansIn && ansBtn) {
       show(freeBox);
       ansIn.value = "";
