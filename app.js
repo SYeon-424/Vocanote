@@ -1317,6 +1317,31 @@ async function requireAndHoldMyStake(stake){
   });
 }
 
+// === 대결 UI 보장: 그룹 단어장 열고 '테스트' 탭으로 ===
+async function ensureDuelUI(gid, bookId){
+  try {
+    // 이미 그 책을 열어둔 상태면 스킵
+    if (currentGBook && currentGBook.gid === gid && currentGBook.id === bookId) {
+      gActivateTab && gActivateTab("test");
+      show(gWordsSection);
+      hide(groupSection);
+      return;
+    }
+
+    // 책 메타 읽고 화면 전환
+    const bSnap = await getDoc(doc(db, "groups", gid, "vocabBooks", bookId));
+    const bData = bSnap.exists() ? bSnap.data() : { name: "대결 단어장", ownerId: "" };
+
+    // 그룹 단어장 화면 열기 + 테스트 탭으로
+    openGBook(gid, { id: bookId, name: bData.name || "대결 단어장", ownerId: bData.ownerId || "" });
+    gActivateTab && gActivateTab("test");
+    show(gWordsSection);
+    hide(groupSection);
+  } catch (e) {
+    console.error("ensureDuelUI error:", e);
+  }
+}
+
 // 단어 캐시 로드 (없으면 가져오고, 있으면 그대로)
 async function loadWordsForMatch(gid, bookId){
   const wordsSnap = await getDocs(collection(db, "groups", gid, "vocabBooks", bookId, "words"));
@@ -1372,84 +1397,126 @@ async function createStakeMatchWithMode({ gid, bookId, timer, rounds, stake, opp
 async function createStakeMatch(args){ return createStakeMatchWithMode({ ...args, mode:"mcq_t2m" }); }
 
 // (2) 매치 리스너
-function startDuelListener(matchPath, host=false){
+function startDuelListener(matchPath, host = false) {
   const matchRef = doc(db, matchPath);
   if (duel.unsub) duel.unsub();
-  duel.unsub = onSnapshot(matchRef, async (snap)=>{
-    if (!snap.exists()) return;
-    const m = snap.data();
 
-    if (m.status === "waiting") {
-      const p2 = m.players?.p2;
-      if (p2 && p2.uid === auth.currentUser?.uid && !p2.ready) {
-        await updateDoc(matchRef, { "players.p2.ready": true });
-        await setDoc(doc(db, "groups", m.gid, "matches", matchRef.id, "answers", auth.currentUser.uid), { byRound:{} }, { merge:true });
+  duel.unsub = onSnapshot(
+    matchRef,
+    async (snap) => {
+      if (!snap.exists()) return;
+      const m = snap.data();
 
-        const wordsSnap = await getDocs(collection(db, "groups", m.gid, "vocabBooks", m.settings.bookId, "words"));
-        duel.wordsById = Object.fromEntries(wordsSnap.docs.map(d=>[d.id, {id:d.id, ...d.data()}]));
-        duel.mid = matchRef.id; duel.gid = m.gid;
-        duel.me = { uid: auth.currentUser.uid, nick: auth.currentUser.displayName || auth.currentUser.email };
-        duel.oppo = { uid: m.players.p1.uid, nick: m.players.p1.nick };
-        duel.settings = m.settings; duel.questions = m.questions; duel.idx = 0; duel.roundLocked=false;
-      }
+      // --- 대기 상태 ---
+      if (m.status === "waiting") {
+        const p2 = m.players?.p2;
 
-      if (host && m.players?.p1?.uid === auth.currentUser?.uid && m.players?.p1?.ready && m.players?.p2?.ready) {
-        await updateDoc(matchRef, { status:"playing", startedAt: Date.now(), "players.p1.idx":0, "players.p2.idx":0 });
-      }
-      return;
-    }
+        // 상대(p2) 단말기: ready 처리 + 단어 캐시 + UI 띄우기
+        if (p2 && p2.uid === auth.currentUser?.uid && !p2.ready) {
+          await updateDoc(matchRef, { "players.p2.ready": true });
 
-    if (m.status === "playing") {
-      // ✅ 단어 캐시가 비어있으면 즉시 로드
-      if (!duel.wordsById || Object.keys(duel.wordsById).length === 0) {
-        try {
-          duel.wordsById = await loadWordsForMatch(m.gid, m.settings.bookId);
-        } catch {}
-      }
-      // ✅ 질문 목록 동기화 (혹시 비어있다면 서버 기준으로 세팅)
-      if (!duel.questions || duel.questions.length === 0) {
-        duel.questions = Array.isArray(m.questions) ? m.questions.slice() : [];
-      }
-    
-      // ✅ 첫 라운드 진입: 카운트다운 후 라운드 시작
-      if (duel.idx === 0 && !duel._counted) {
-        duel._counted = true;
-        startCountdown(3, ()=> startDuelRound());
+          await setDoc(
+            doc(db, "groups", m.gid, "matches", matchRef.id, "answers", auth.currentUser.uid),
+            { byRound: {} },
+            { merge: true }
+          );
+
+          const wordsSnap = await getDocs(
+            collection(db, "groups", m.gid, "vocabBooks", m.settings.bookId, "words")
+          );
+          duel.wordsById = Object.fromEntries(
+            wordsSnap.docs.map((d) => [d.id, { id: d.id, ...d.data() }])
+          );
+
+          duel.mid = matchRef.id;
+          duel.gid = m.gid;
+          duel.me = {
+            uid: auth.currentUser.uid,
+            nick: auth.currentUser.displayName || auth.currentUser.email,
+          };
+          duel.oppo = { uid: m.players.p1.uid, nick: m.players.p1.nick };
+          duel.settings = m.settings;
+          duel.questions = m.questions;
+          duel.idx = 0;
+          duel.roundLocked = false;
+
+          // 🔹 상대가 수락 직후에도 대결 UI 보장
+          await ensureDuelUI(m.gid, m.settings.bookId);
+        }
+
+        // 호스트 단말기: 양쪽 ready면 playing으로 전환
+        if (
+          host &&
+          m.players?.p1?.uid === auth.currentUser?.uid &&
+          m.players?.p1?.ready &&
+          m.players?.p2?.ready
+        ) {
+          await updateDoc(matchRef, {
+            status: "playing",
+            startedAt: Date.now(),
+            "players.p1.idx": 0,
+            "players.p2.idx": 0,
+          });
+        }
         return;
       }
-    
-      // ✅ 양쪽 idx의 최소값이 "현재 라운드"
-      const round = Math.min(m.players?.p1?.idx ?? 0, m.players?.p2?.idx ?? 0);
-    
-      // 새 라운드로 넘어가면 화면 갱신
-      if (round !== duel.idx && !duel.roundLocked) {
-        duel.idx = round;
-        startDuelRound();
-      }
-    
-      // 라운드 모두 소진 시 종료
-      if (round >= (m.settings?.rounds || 10)) {
-        updateDoc(matchRef, { status:"finished", finishedAt: Date.now() }).catch(()=>{});
-      }
-      return;
-    }
 
+      // --- 플레이 중 ---
+      if (m.status === "playing") {
+        // 🔹 실제 시작 시에도 UI 확실히 열어두기
+        await ensureDuelUI(m.gid, m.settings.bookId);
 
-    if (m.status === "finished") {
-      if (duel.tick) { clearInterval(duel.tick); duel.tick=null; }
-      settleStake(m).catch(()=>{});
-      const s1 = m.players?.p1?.score ?? 0;
-      const s2 = m.players?.p2?.score ?? 0;
-      const myIsP1 = m.players?.p1?.uid === auth.currentUser?.uid;
-      const iWon = (s1===s2) ? null : (myIsP1 ? s1>s2 : s2>s1);
-      alert((s1===s2) ? `무승부! (${s1}:${s2})` : (iWon ? `🎉 승리! (${s1}:${s2})` : `패배… (${s1}:${s2})`));
-      if (duel.unsub) { duel.unsub(); duel.unsub=null; }
+        // 시작 직후 3-2-1 카운트다운 → 1라운드 시작
+        if (duel.idx === 0 && !duel._counted) {
+          duel._counted = true;
+          startCountdown(3, () => startDuelRound());
+          return;
+        }
+
+        // 라운드 동기화
+        const round = Math.min(m.players?.p1?.idx ?? 0, m.players?.p2?.idx ?? 0);
+        if (round !== duel.idx && !duel.roundLocked) {
+          duel.idx = round;
+          startDuelRound();
+        }
+
+        // 마지막 라운드 종료 → finished
+        if (round >= (m.settings?.rounds || 10)) {
+          updateDoc(matchRef, { status: "finished", finishedAt: Date.now() }).catch(() => {});
+        }
+        return;
+      }
+
+      // --- 종료 ---
+      if (m.status === "finished") {
+        if (duel.tick) {
+          clearInterval(duel.tick);
+          duel.tick = null;
+        }
+        settleStake(m).catch(() => {});
+
+        const s1 = m.players?.p1?.score ?? 0;
+        const s2 = m.players?.p2?.score ?? 0;
+        const myIsP1 = m.players?.p1?.uid === auth.currentUser?.uid;
+        const iWon = s1 === s2 ? null : myIsP1 ? s1 > s2 : s2 > s1;
+
+        alert(
+          s1 === s2 ? `무승부! (${s1}:${s2})` : iWon ? `🎉 승리! (${s1}:${s2})` : `패배… (${s1}:${s2})`
+        );
+
+        if (duel.unsub) {
+          duel.unsub();
+          duel.unsub = null;
+        }
+      }
+    },
+    (err) => {
+      console.error(err);
+      alert("대결 동기화 중 오류: " + (err?.message || err));
     }
-  }, (err)=>{
-    console.error(err);
-    alert("대결 동기화 중 오류: " + (err?.message || err));
-  });
+  );
 }
+
 
 function startCountdown(n, onDone){
   show(duelCountdownEl);
