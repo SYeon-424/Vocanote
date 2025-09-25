@@ -135,7 +135,13 @@ const gQuizFeedback  = document.getElementById("gquiz-feedback");
 const gEndTestBtn    = document.getElementById("gend-test");
 const gTestResultEl  = document.getElementById("gtest-result");
 
-// ====== 대결(duel) DOM ======
+// ==== 대결 모달 DOM ====
+const duelModalEl   = document.getElementById("duel-pick-modal");
+const duelOppNameEl = document.getElementById("duel-opponent-name");
+const duelBookSelEl = document.getElementById("duel-book-select");
+const duelBetEl     = document.getElementById("duel-bet");
+const duelCancelBtn = document.getElementById("duel-cancel");
+const duelConfirmBtn= document.getElementById("duel-confirm");
 const duelCountdownEl = document.getElementById("duel-countdown");
 
 // ===================== 상태 =====================
@@ -168,6 +174,7 @@ let unsubGWords = null;
 let currentGBook = null; // { gid, id, name, ownerId }
 let gWordsCache = [];
 let gIsOwner = false;
+let groupBooksCache = []; // 그룹 단어장 캐시 [{id, name, ownerId}]
 
 /* 그룹 테스트 상태 */
 let gTestRunning=false, gTestMode="mcq_t2m", gQuizOrder=[], gQuizIdx=0;
@@ -336,6 +343,7 @@ function startBooksLive(uid) {
   const qBooks = query(collection(db, "users", uid, "vocabBooks"), orderBy("createdAt", "desc"));
   unsubBooks = onSnapshot(qBooks, async (snap) => {
     bookListEl.innerHTML = "";
+    groupBooksCache = []; // ✅ 캐시 리셋
     myBooksCache = [];
     importSourceSel.innerHTML = `<option value=""> 내 단어장을 선택하세요 </option>`;
 
@@ -413,6 +421,7 @@ function startWordsLive() {
     wordListEl.innerHTML = "";
     snap.forEach((d) => {
       const w = { id: d.id, ...d.data() };
+      groupBooksCache.push({ id: d.id, name: w.name, ownerId: w.ownerId }); // ✅ 캐시 저장
       wordsCache.push(w);
 
       const li = document.createElement("li");
