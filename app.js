@@ -770,7 +770,10 @@ function startMembersLive(gid) {
         1: "문우현쌤의 하트셰이커",
         2: "멍청한 장구벌레",
         3: "개발자 쪼는 비둘기",
-        4: "은수 킬"
+        4: "은수 킬",
+        5: "은수킬의 귀농생활",
+        6: "김민주주의인민공화국의 수령",
+        7: "다이아 킬"
       };
 
       const li = document.createElement("li");
