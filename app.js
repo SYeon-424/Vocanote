@@ -1411,7 +1411,7 @@ function startDuelListener(matchPath, host = false) {
       if (m.status === "waiting") {
         const p2 = m.players?.p2;
 
-        // 상대(p2) 단말기: ready 처리 + 단어 캐시 + UI 띄우기
+        // 수락자(p2) 단말: ready 처리 + 단어 캐시 + UI 열기
         if (p2 && p2.uid === auth.currentUser?.uid && !p2.ready) {
           await updateDoc(matchRef, { "players.p2.ready": true });
 
@@ -1440,11 +1440,11 @@ function startDuelListener(matchPath, host = false) {
           duel.idx = 0;
           duel.roundLocked = false;
 
-          // 🔹 상대가 수락 직후에도 대결 UI 보장
+          // UI 보장
           await ensureDuelUI(m.gid, m.settings.bookId);
         }
 
-        // 호스트 단말기: 양쪽 ready면 playing으로 전환
+        // 호스트: 둘 다 ready면 시작
         if (
           host &&
           m.players?.p1?.uid === auth.currentUser?.uid &&
@@ -1463,24 +1463,29 @@ function startDuelListener(matchPath, host = false) {
 
       // --- 플레이 중 ---
       if (m.status === "playing") {
-        // 🔹 실제 시작 시에도 UI 확실히 열어두기
+        // UI 확실히 열어두기
         await ensureDuelUI(m.gid, m.settings.bookId);
 
-        // 시작 직후 3-2-1 카운트다운 → 1라운드 시작
+        // 첫 라운드: 3-2-1 카운트다운 후 시작
         if (duel.idx === 0 && !duel._counted) {
           duel._counted = true;
           startCountdown(3, () => startDuelRound());
           return;
         }
 
-        // 라운드 동기화
+        // 서버 라운드(두 플레이어 idx의 최소값)와 동기화
         const round = Math.min(m.players?.p1?.idx ?? 0, m.players?.p2?.idx ?? 0);
-        if (round !== duel.idx && !duel.roundLocked) {
+
+        // 🚩 핵심 수정: 라운드가 증가했으면, 누가 눌렀건 간에
+        // 로컬 락/타이머를 정리하고 다음 라운드로 강제 진입
+        if (round > duel.idx) {
+          duel.roundLocked = false;                 // <- 락 해제
+          if (duel.tick) { clearInterval(duel.tick); duel.tick = null; } // 남은 타이머 제거
           duel.idx = round;
           startDuelRound();
         }
 
-        // 마지막 라운드 종료 → finished
+        // 마지막 라운드 종료 처리
         if (round >= (m.settings?.rounds || 10)) {
           updateDoc(matchRef, { status: "finished", finishedAt: Date.now() }).catch(() => {});
         }
@@ -1489,25 +1494,17 @@ function startDuelListener(matchPath, host = false) {
 
       // --- 종료 ---
       if (m.status === "finished") {
-        if (duel.tick) {
-          clearInterval(duel.tick);
-          duel.tick = null;
-        }
+        if (duel.tick) { clearInterval(duel.tick); duel.tick = null; }
         settleStake(m).catch(() => {});
 
         const s1 = m.players?.p1?.score ?? 0;
         const s2 = m.players?.p2?.score ?? 0;
         const myIsP1 = m.players?.p1?.uid === auth.currentUser?.uid;
-        const iWon = s1 === s2 ? null : myIsP1 ? s1 > s2 : s2 > s1;
+        const iWon = (s1 === s2) ? null : (myIsP1 ? s1 > s2 : s2 > s1);
 
-        alert(
-          s1 === s2 ? `무승부! (${s1}:${s2})` : iWon ? `🎉 승리! (${s1}:${s2})` : `패배… (${s1}:${s2})`
-        );
+        alert((s1 === s2) ? `무승부! (${s1}:${s2})` : (iWon ? `🎉 승리! (${s1}:${s2})` : `패배… (${s1}:${s2})`));
 
-        if (duel.unsub) {
-          duel.unsub();
-          duel.unsub = null;
-        }
+        if (duel.unsub) { duel.unsub(); duel.unsub = null; }
       }
     },
     (err) => {
@@ -1516,6 +1513,7 @@ function startDuelListener(matchPath, host = false) {
     }
   );
 }
+
 
 
 function startCountdown(n, onDone){
