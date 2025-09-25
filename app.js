@@ -1674,11 +1674,37 @@ function startDuelRequestListeners(gid) {
       try {
         // ② 수락자(나) 선차감
         await requireAndHoldMyStake(r.settings.stake);
-        await updateDoc(doc(db, "groups", gid, "matchRequests", reqId), { status: "accepted" });
+    
+        const reqDocRef = doc(db, "groups", gid, "matchRequests", reqId);
+    
+        // 수락자도 'started' 될 때까지 이 요청 문서를 잠깐 구독해 matchId를 받아온다
+        const unsubWait = onSnapshot(reqDocRef, (snap) => {
+          if (!snap.exists()) return;
+          const cur = snap.data();
+    
+          // 상대가 매치 생성 실패
+          if (cur.status === "error") {
+            alert("상대가 매치를 만들지 못했습니다: " + (cur.error || ""));
+            unsubWait();
+            return;
+          }
+    
+          // 매치가 시작되면 matchId로 접속
+          if (cur.status === "started" && cur.matchId) {
+            unsubWait();
+            const matchPath = `groups/${gid}/matches/${cur.matchId}`;
+            startDuelListener(matchPath, /*host=*/false);
+          }
+        });
+    
+        // 내 상태를 accepted 로 변경 (요청자가 이걸 보고 매치 생성)
+        await updateDoc(reqDocRef, { status: "accepted" });
+    
       } catch (e) {
         alert("수락 실패: " + (e?.message || e));
       }
     };
+
   }, (err)=>{
     console.error(err);
   });
