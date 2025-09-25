@@ -1301,6 +1301,10 @@ async function adjustUserExp(uid, delta){
 }
 
 // ===================== 스피드퀴즈 대결 =====================
+// --- 내 stake(포인트) 선차감: 본인 문서만 수정 ---
+async function requireAndHoldMyStake(stake){
+  const me = auth.currentUser; if (!me) throw new Error("로그인이 필요합니다.");
+}
 // (1) 매치 생성 (모드 지원)
 async function createStakeMatchWithMode({ gid, bookId, timer, rounds, stake, oppo, mode }){
   const me = auth.currentUser;
@@ -1312,20 +1316,6 @@ async function createStakeMatchWithMode({ gid, bookId, timer, rounds, stake, opp
   if (words.length < 3) throw new Error("단어가 3개 이상 있어야 대결 가능합니다.");
   const order = shuffle(words.map(w=>w.id)).slice(0, rounds);
   const wordsById = Object.fromEntries(words.map(w=>[w.id, w]));
-
-  // 양쪽 exp 확인/예치
-  const meRef = doc(db, "users", me.uid);
-  const opRef = doc(db, "users", oppo.uid);
-  await runTransaction(db, async (tx)=>{
-    const a = await tx.get(meRef);  if (!a.exists()) throw new Error("내 사용자 문서가 없습니다.");
-    const b = await tx.get(opRef);  if (!b.exists()) throw new Error("상대 사용자 문서가 없습니다.");
-    const myExp = (a.data().exp|0);
-    const opExp = (b.data().exp|0);
-    if (myExp < stake) throw new Error("내 포인트가 부족해요.");
-    if (opExp < stake) throw new Error("상대 포인트가 부족해서 요청을 진행할 수 없어요.");
-    tx.update(meRef, { exp: myExp - stake });
-    tx.update(opRef, { exp: opExp - stake });
-  });
 
   // 매치 문서
   const matchesCol = collection(db, "groups", gid, "matches");
@@ -1554,36 +1544,41 @@ async function advanceRound(){
 }
 
 async function settleStake(m){
+  const me = auth.currentUser; if (!me) return;
+  const myUid = me.uid;
+
   const matchRef = doc(db, "groups", m.gid, "matches", duel.mid);
+
+  // 중복 정산 방지 플래그
   await runTransaction(db, async (tx)=>{
     const snap = await tx.get(matchRef);
     if (!snap.exists()) return;
     const mm = snap.data();
     if (mm.settled) return;
-
-    const s1 = mm.players?.p1?.score||0;
-    const s2 = mm.players?.p2?.score||0;
-    const p1 = mm.players?.p1?.uid;
-    const p2 = mm.players?.p2?.uid;
-    const pot = mm.pot||0;
-    const stake = mm.stake||0;
-
     tx.update(matchRef, { settled:true });
+  }).catch(()=>{});
 
-    if (s1 === s2) {
-      setTimeout(()=>{
-        adjustUserExp(p1, stake).catch(()=>{});
-        adjustUserExp(p2, stake).catch(()=>{});
-      }, 0);
-    } else {
-      const winner = (s1>s2) ? p1 : p2;
-      setTimeout(()=>{ adjustUserExp(winner, pot).catch(()=>{}); }, 0);
-    }
-  }).catch(e=>console.error(e));
+  const s1 = m.players?.p1?.score||0;
+  const s2 = m.players?.p2?.score||0;
+  const p1 = m.players?.p1?.uid;
+  const p2 = m.players?.p2?.uid;
+  const pot = m.pot||0;
+  const stake = m.stake||0;
+
+  // 무승부: 각자 환급
+  if (s1 === s2) {
+    if (myUid === p1 || myUid === p2) await adjustUserExp(myUid, stake).catch(()=>{});
+    return;
+  }
+  // 승자만 pot 수령
+  const winner = (s1>s2) ? p1 : p2;
+  if (myUid === winner) await adjustUserExp(myUid, pot).catch(()=>{});
 }
 
 // ===== 대결 신청(요청) 저장: groups/{gid}/matchRequests =====
 async function sendDuelRequest({ gid, toUid, toNick, settings }) {
+    // ① 보낸 사람(나) 선차감
+  await requireAndHoldMyStake(settings.stake);
   const me = auth.currentUser; if (!me) throw new Error("로그인이 필요합니다.");
   const reqRef = await addDoc(collection(db, "groups", gid, "matchRequests"), {
     gid,
@@ -1664,7 +1659,13 @@ function startDuelRequestListeners(gid) {
 
     incAcceptBtn.onclick = async () => {
       hide(incModalEl);
-      await updateDoc(doc(db, "groups", gid, "matchRequests", reqId), { status: "accepted" });
+      try {
+        // ② 수락자(나) 선차감
+        await requireAndHoldMyStake(r.settings.stake);
+        await updateDoc(doc(db, "groups", gid, "matchRequests", reqId), { status: "accepted" });
+      } catch (e) {
+        alert("수락 실패: " + (e?.message || e));
+      }
     };
   }, (err)=>{
     console.error(err);
