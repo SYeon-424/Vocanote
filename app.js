@@ -774,7 +774,7 @@ function startMembersLive(gid) {
         4: "은수 킬",
         5: "은수킬의 귀농생활",
         6: "김민주주의인민공화국의 수령",
-        7: "다이아 킬"
+        7: "각경사의 FBI open up"
       };
 
       const li = document.createElement("li");
