@@ -1435,6 +1435,7 @@ function startDuelListener(matchPath, host = false) {
       if (host &&
           m.players?.p1?.uid === auth.currentUser?.uid &&
           m.players?.p1?.ready && m.players?.p2?.ready) {
+        await ensureDuelUI(m.gid, m.settings.bookId);
         await updateDoc(matchRef, {
           status: "playing",
           startedAt: Date.now(),
