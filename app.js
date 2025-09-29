@@ -626,7 +626,7 @@ async function addExp(points){
   exp += (points|0);
 
   // 레벨업 규칙
-  const need = level * level * 100 * 2;
+  const need = level * 100 * 3;
   if (exp >= need) {
     level += 1;
     exp -= need;
