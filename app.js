@@ -257,32 +257,83 @@ onAuthStateChanged(auth, async (user) => {
     let display = user.displayName || "";
     try {
       const snap = await getDoc(doc(db, "users", user.uid));
-      if (snap.exists()) {
-        const u = snap.data();
+      const u = snap.exists() ? snap.data() : {};  // 문서 없으면 빈 객체
 
-        const nick = (display || u.nickname || user.email || "").trim();
-        if (profileNickEl)  profileNickEl.textContent = nick || "닉네임";
-        if (profileEmailEl) profileEmailEl.textContent = (u.email || user.email || "email");
+      // 닉/이메일
+      const nick = (display || u.nickname || user.email || "").trim();
+      if (profileNickEl)  profileNickEl.textContent = nick || "닉네임";
+      if (profileEmailEl) profileEmailEl.textContent = (u.email || user.email || "email");
 
-        // --- 프로필 이미지 선택 & 표시(캐시버스터 적용) ---
-        const imgUrlRaw = (u.profileImg || user.photoURL || u.profileImgBase64 || "") || "";
-        const ver = u.profileImgUpdatedAt || 0;
-        const imgUrlForImgTag = (imgUrlRaw && ver) ? `${imgUrlRaw}?t=${ver}` : imgUrlRaw;
-        
-        if (avatarImgEl) avatarImgEl.src = imgUrlForImgTag;
-        
-        // 레벨/포인트는 기존 코드 그대로 유지
-        const lv = u.level || 1;
-        const exp = u.exp || 0;
-        if (userLevelEl)  userLevelEl.textContent = `Lv.${lv}`;
-        if (userPointsEl) userPointsEl.textContent = exp;
-        
-        // --- 멤버 카드들 동기화는 '원본 URL'로 (캐시버스터 없이) ---
+      // 프로필 이미지 (Firestore 우선 + 캐시버스터)
+      const imgUrlRaw = (u.profileImg || user.photoURL || u.profileImgBase64 || "") || "";
+      const ver = u.profileImgUpdatedAt || 0;
+      const imgUrlForImgTag = (imgUrlRaw && ver) ? `${imgUrlRaw}?t=${ver}` : imgUrlRaw;
+      if (avatarImgEl) avatarImgEl.src = imgUrlForImgTag;
+
+      // 레벨/포인트
+      const lv  = u.level || 1;
+      const exp = u.exp   || 0;
+      if (userLevelEl)  userLevelEl.textContent = `Lv.${lv}`;
+      if (userPointsEl) userPointsEl.textContent = exp;
+
+      // 멤버 카드 동기화(원본 URL로)
+      try { await syncMyMemberFields({ photoURL: imgUrlRaw, level: lv }); } catch {}
+    } catch (e) {
+      // 사용자 문서 읽기 실패시 Auth 값으로 최소 표시
+      if (profileNickEl)  profileNickEl.textContent = display || user.email || "닉네임";
+      if (profileEmailEl) profileEmailEl.textContent = user.email || "email";
+      if (avatarImgEl && user.photoURL) avatarImgEl.src = user.photoURL; // fallback
+    }
+
+    // ⬇️ 여기부터는 기존 코드 그대로 유지
+    userDisplayEl.textContent = display || user.email;
+
+    startBooksLive(user.uid);
+    startMyGroupsLive(user.uid);
+
+    // (프로필 업로드 핸들러도 네가 적용한 setDoc/캐시버스터 버전 유지)
+    if (saveAvatarBtn && avatarFileEl) {
+      saveAvatarBtn.onclick = async () => {
+        if (!avatarFileEl.files || avatarFileEl.files.length === 0) return alert("이미지 파일을 선택해주세요.");
+        const file = avatarFileEl.files[0];
         try {
-          await syncMyMemberFields({ photoURL: imgUrlRaw, level: lv });
-        } catch {}
-      }
-    } catch {}
+          const path = `users/${user.uid}/profile/${Date.now()}_${file.name}`;
+          const fileRef = sRef(storage, path);
+          await uploadBytes(fileRef, file);
+          const url = await getDownloadURL(fileRef);
+
+          const updatedAt = Date.now();
+          await setDoc(doc(db, "users", user.uid), { profileImg: url, profileImgUpdatedAt: updatedAt }, { merge: true });
+          try { await updateProfile(user, { photoURL: url }); await user.reload(); } catch {}
+
+          try { await syncMyMemberFields({ photoURL: url }); } catch {}
+          if (avatarImgEl) avatarImgEl.src = `${url}?t=${updatedAt}`;
+          alert("프로필 이미지가 저장되었습니다.");
+        } catch (e) {
+          console.error(e);
+          alert("이미지 업로드 실패: " + (e?.message || e));
+        }
+      };
+    }
+  } else {
+    // 로그아웃 상태 처리 (기존 코드 유지)
+    show(authSection); hide(appSection); hide(wordsSection); hide(groupSection); hide(gWordsSection);
+    userDisplayEl.textContent = "";
+    bookListEl.innerHTML = ""; wordListEl.innerHTML = "";
+    myGroupListEl.innerHTML = ""; groupMembersEl.innerHTML = "";
+    gBookListEl.innerHTML = ""; gWordListEl.innerHTML = "";
+    importSourceSel.innerHTML = `<option value="">내 단어장을 선택하세요</option>`;
+    if (unsubBooks) unsubBooks();
+    if (unsubWords) unsubWords();
+    if (unsubMyGroups) unsubMyGroups();
+    if (unsubGroupMembers) unsubGroupMembers();
+    if (unsubGBooks) unsubGBooks();
+    if (unsubGWords) unsubGWords();
+    if (unsubIncomingReq) { unsubIncomingReq(); unsubIncomingReq=null; }
+    resetTestUI(true); gResetTestUI(true);
+    if (duel.unsub) { duel.unsub(); duel.unsub=null; }
+  }
+});
 
     userDisplayEl.textContent = display || user.email;
 
