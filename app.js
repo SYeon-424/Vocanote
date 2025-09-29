@@ -285,9 +285,8 @@ onAuthStateChanged(auth, async (user) => {
       if (avatarImgEl && user.photoURL) avatarImgEl.src = user.photoURL; // fallback
     }
 
-    // ⬇️ 여기부터는 기존 코드 그대로 유지
-    userDisplayEl.textContent = display || user.email;
-
+    // ⬇️ 기존 흐름 계속
+    userDisplayEl && (userDisplayEl.textContent = display || user.email);
     startBooksLive(user.uid);
     startMyGroupsLive(user.uid);
 
