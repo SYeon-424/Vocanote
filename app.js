@@ -1453,26 +1453,30 @@ function startDuelListener(matchPath, host = false) {
       const p2idx = m.players?.p2?.idx ?? 0;
       const derivedRound = Math.min(p1idx, p2idx);
       const serverRound  = (typeof m.round === "number") ? Math.max(m.round, derivedRound) : derivedRound;
-
+    
+      // ✅ 대결 UI 보장: 해당 그룹 단어장 열고 "테스트" 탭으로 전환
+      await ensureDuelUI(m.gid, m.settings.bookId);
+    
       // 라운드 0에서만 카운트다운 → 끝나면 강제 렌더
       if (!duel._counted && serverRound === 0) {
         duel._counted = true;
         startCountdown(3, () => {}); // onDone은 forceRenderCurrentRound가 처리
         return;
       }
-
+    
       // 라운드가 바뀌면 즉시 강제 렌더
       if (serverRound !== duel._activeRound) {
         duel._activeRound = serverRound;
         duel.idx = serverRound;
         forceRenderCurrentRound();
       }
-
+    
       if (serverRound >= total) {
         updateDoc(matchRef, { status: "finished", finishedAt: Date.now() }).catch(()=>{});
       }
       return;
     }
+
 
     // -------- finished --------
     if (m.status === "finished") {
