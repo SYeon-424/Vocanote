@@ -264,15 +264,23 @@ onAuthStateChanged(auth, async (user) => {
         if (profileNickEl)  profileNickEl.textContent = nick || "닉네임";
         if (profileEmailEl) profileEmailEl.textContent = (u.email || user.email || "email");
 
-        const photoURL = user.photoURL || u.profileImg || u.profileImgBase64 || "";
-        if (avatarImgEl) avatarImgEl.src = photoURL || "";
-
+        // --- 프로필 이미지 선택 & 표시(캐시버스터 적용) ---
+        const imgUrlRaw = (u.profileImg || user.photoURL || u.profileImgBase64 || "") || "";
+        const ver = u.profileImgUpdatedAt || 0;
+        const imgUrlForImgTag = (imgUrlRaw && ver) ? `${imgUrlRaw}?t=${ver}` : imgUrlRaw;
+        
+        if (avatarImgEl) avatarImgEl.src = imgUrlForImgTag;
+        
+        // 레벨/포인트는 기존 코드 그대로 유지
         const lv = u.level || 1;
         const exp = u.exp || 0;
         if (userLevelEl)  userLevelEl.textContent = `Lv.${lv}`;
         if (userPointsEl) userPointsEl.textContent = exp;
-
-        syncMyMemberFields({ photoURL, level: lv }).catch(()=>{});
+        
+        // --- 멤버 카드들 동기화는 '원본 URL'로 (캐시버스터 없이) ---
+        try {
+          await syncMyMemberFields({ photoURL: imgUrlRaw, level: lv });
+        } catch {}
       }
     } catch {}
 
@@ -284,32 +292,42 @@ onAuthStateChanged(auth, async (user) => {
     // 프로필 업로드
     if (saveAvatarBtn && avatarFileEl) {
       saveAvatarBtn.onclick = async () => {
+        const user = auth.currentUser;
+        if (!user) return alert("로그인이 필요합니다.");
         if (!avatarFileEl.files || avatarFileEl.files.length === 0) {
           return alert("이미지 파일을 선택해주세요.");
         }
         const file = avatarFileEl.files[0];
     
-        // (옵션) 업로드 전 즉시 미리보기
+        // 미리보기(로컬)
         try { if (avatarImgEl) avatarImgEl.src = URL.createObjectURL(file); } catch {}
     
         try {
-          const path = `users/${auth.currentUser.uid}/profile/${Date.now()}_${file.name}`;
+          const path = `users/${user.uid}/profile/${Date.now()}_${file.name}`;
           const fileRef = sRef(storage, path);
           await uploadBytes(fileRef, file);
           const url = await getDownloadURL(fileRef);
     
-          // ✅ 문서가 없어도 안전: merge로 upsert
-          await setDoc(doc(db, "users", auth.currentUser.uid), { profileImg: url }, { merge: true });
+          // ✅ Firestore upsert(문서 없을 때도 안전) + 타임스탬프로 캐시버스터 저장
+          const updatedAt = Date.now();
+          await setDoc(
+            doc(db, "users", user.uid),
+            { profileImg: url, profileImgUpdatedAt: updatedAt },
+            { merge: true }
+          );
     
-          // Firebase Auth 프로필도 갱신 (실패해도 무시)
-          try { await updateProfile(auth.currentUser, { photoURL: url }); } catch {}
+          // ✅ Firebase Auth 프로필도 갱신 + 세션에 즉시 반영
+          try {
+            await updateProfile(user, { photoURL: url });
+            await user.reload(); // ← 새로고침 없이도 user.photoURL 반영
+          } catch {}
     
-          // 그룹 멤버 카드들 동기화
-          try { await syncMyMemberFields({ photoURL: url }); } catch {}
+          // 그룹 멤버 카드들 동기화(같은 URL로)
+          try { await syncMyMemberFields({ photoURL: url }).catch(()=>{}); } catch {}
     
-          // 즉시 UI 반영
-          if (avatarImgEl) avatarImgEl.src = url;
-          console.log("profile image updated");
+          // ✅ 즉시 UI 반영(캐시 우회)
+          if (avatarImgEl) avatarImgEl.src = `${url}?t=${updatedAt}`;
+    
           alert("프로필 이미지가 저장되었습니다.");
         } catch (e) {
           console.error(e);
@@ -317,6 +335,7 @@ onAuthStateChanged(auth, async (user) => {
         }
       };
     }
+
 
   } else {
     show(authSection); hide(appSection); hide(wordsSection); hide(groupSection); hide(gWordsSection);
