@@ -284,26 +284,40 @@ onAuthStateChanged(auth, async (user) => {
     // 프로필 업로드
     if (saveAvatarBtn && avatarFileEl) {
       saveAvatarBtn.onclick = async () => {
-        if (!avatarFileEl.files || avatarFileEl.files.length === 0) return;
+        if (!avatarFileEl.files || avatarFileEl.files.length === 0) {
+          return alert("이미지 파일을 선택해주세요.");
+        }
         const file = avatarFileEl.files[0];
+    
+        // (옵션) 업로드 전 즉시 미리보기
+        try { if (avatarImgEl) avatarImgEl.src = URL.createObjectURL(file); } catch {}
+    
         try {
-          const path = `users/${user.uid}/profile/${Date.now()}_${file.name}`;
+          const path = `users/${auth.currentUser.uid}/profile/${Date.now()}_${file.name}`;
           const fileRef = sRef(storage, path);
           await uploadBytes(fileRef, file);
           const url = await getDownloadURL(fileRef);
-
-          await updateDoc(doc(db, "users", user.uid), { profileImg: url });
-          try { await updateProfile(user, { photoURL: url }); } catch {}
-
-          await syncMyMemberFields({ photoURL: url }).catch(()=>{});
+    
+          // ✅ 문서가 없어도 안전: merge로 upsert
+          await setDoc(doc(db, "users", auth.currentUser.uid), { profileImg: url }, { merge: true });
+    
+          // Firebase Auth 프로필도 갱신 (실패해도 무시)
+          try { await updateProfile(auth.currentUser, { photoURL: url }); } catch {}
+    
+          // 그룹 멤버 카드들 동기화
+          try { await syncMyMemberFields({ photoURL: url }); } catch {}
+    
+          // 즉시 UI 반영
           if (avatarImgEl) avatarImgEl.src = url;
           console.log("profile image updated");
+          alert("프로필 이미지가 저장되었습니다.");
         } catch (e) {
           console.error(e);
           alert("이미지 업로드 실패: " + (e?.message || e));
         }
       };
     }
+
   } else {
     show(authSection); hide(appSection); hide(wordsSection); hide(groupSection); hide(gWordsSection);
     userDisplayEl.textContent = "";
