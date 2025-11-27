@@ -822,7 +822,9 @@ function startMembersLive(gid) {
         6: "김민주주의인민공화국의 수령",
         7: "각경사의 FBI open up",
         8: "수능만점",
-        9: "성층권의 하늘고래"
+        9: "성층권의 하늘고래",
+        10: "반짝반짝 미친별",
+        11: "쇼 비즈니스 맙소사"
       };
 
       const li = document.createElement("li");
