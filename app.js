@@ -1091,6 +1091,9 @@ function startGBooksLive(gid) {
           wSnap.forEach(ws => batch.delete(doc(db, "groups", gid, "vocabBooks", b.id, "words", ws.id)));
           if (!wSnap.empty) await batch.commit();
           await deleteDoc(doc(db, "groups", gid, "vocabBooks", b.id));
+          if (currentGBook && currentGBook.id === b.id) {
+              backToGBooksBtn.onclick();
+          }
         };
 
         btnWrap.appendChild(renameBtn);
