@@ -285,9 +285,9 @@ onAuthStateChanged(auth, async (user) => {
     }
 
     userDisplayEl && (userDisplayEl.textContent = display || user.email);
-    startBooksLive(user.uid);
-    startMyGroupsLive(user.uid);
-
+    await loadBooksOnce(user.uid);
+    await loadMyGroupsOnce(user.uid);
+    
     if (saveAvatarBtn && avatarFileEl) {
       saveAvatarBtn.onclick = async () => {
         if (!avatarFileEl.files || avatarFileEl.files.length === 0) return alert("이미지 파일을 선택해주세요.");
@@ -1788,4 +1788,55 @@ function modeLabel(mode) {
   if (mode === "mcq_m2t") return "객관식 (뜻→단어)";
   if (mode === "free_m2t") return "서술형 (뜻→단어)";
   return "객관식 (단어→뜻)";
+}
+
+async function loadBooksOnce(uid) {
+  const qBooks = query(collection(db, "users", uid, "vocabBooks"), orderBy("createdAt", "desc"));
+  const snap = await getDocs(qBooks);
+
+  bookListEl.innerHTML = "";
+  myBooksCache = [];
+  importSourceSel.innerHTML = `<option value=""> 내 단어장을 선택하세요 </option>`;
+
+  snap.forEach((d) => {
+    const data = d.data();
+    myBooksCache.push({ id: d.id, name: data.name });
+
+    const li = document.createElement("li");
+    const label = document.createElement("span");
+    label.textContent = data.name;
+    label.style.cursor = "pointer";
+    label.onclick = () => openBook({ id: d.id, name: data.name });
+
+    li.appendChild(label);
+    bookListEl.appendChild(li);
+  });
+
+  myBooksCache.forEach(b => {
+    const opt = document.createElement("option");
+    opt.value = b.id;
+    opt.textContent = b.name;
+    importSourceSel.appendChild(opt);
+  });
+}
+
+async function loadMyGroupsOnce(uid) {
+  const qMy = query(collection(db, "users", uid, "groups"), orderBy("joinedAt", "desc"));
+  const snap = await getDocs(qMy);
+
+  myGroupListEl.innerHTML = "";
+
+  snap.forEach(d => {
+    const g = { id: d.id, ...d.data() }; 
+    const gid = g.groupId || g.id;
+
+    const li = document.createElement("li");
+    const label = document.createElement("span");
+    label.textContent = g.name;
+    label.style.cursor = "pointer";
+    label.onclick = () => openGroup({ id: gid, name: g.name, code: g.code });
+
+    li.appendChild(label);
+    myGroupListEl.appendChild(li);
+  });
 }
