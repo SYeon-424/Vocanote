@@ -80,6 +80,8 @@ const quizChoices   = document.getElementById("quiz-choices");
 const quizFeedback  = document.getElementById("quiz-feedback");
 const endTestBtn    = document.getElementById("end-test");
 const testResultEl  = document.getElementById("test-result");
+const searchWordEl = document.getElementById("search-word");
+const filteredListEl = document.getElementById("filtered-list");
 
 /* ====== 그룹 DOM ====== */
 const groupNameEl = document.getElementById("group-name");
@@ -478,6 +480,30 @@ function startWordsLive() {
       li.appendChild(label);
       li.appendChild(btnWrap);
       wordListEl.appendChild(li);
+    });
+  });
+}
+
+// 🔍 검색 기능
+if (searchWordEl) {
+  searchWordEl.addEventListener("input", () => {
+    const q = normalize(searchWordEl.value);
+    filteredListEl.innerHTML = "";
+
+    if (!q) {
+      filteredListEl.innerHTML = "";
+      return;
+    }
+
+    const results = wordsCache.filter(w =>
+      normalize(w.term).includes(q) ||
+      normalize(w.meaning).includes(q)
+    );
+
+    results.forEach(w => {
+      const li = document.createElement("li");
+      li.textContent = `${w.term} — ${w.meaning}`;
+      filteredListEl.appendChild(li);
     });
   });
 }
