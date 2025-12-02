@@ -491,13 +491,16 @@ if (searchWordEl) {
 
     if (!q) return;
 
-    const results = wordsCache.filter(w =>
+    // 🔥 지금 어떤 모드인지에 따라 검색 대상이 달라진다.
+    const list = currentGBook ? gWordsCache : wordsCache;
+
+    const results = list.filter(w =>
       normalize(w.term).includes(q) ||
       normalize(w.meaning).includes(q)
     );
 
     const user = auth.currentUser;
-    if (!user || !currentBook) return;
+    if (!user) return;
 
     results.forEach(w => {
       const li = document.createElement("li");
@@ -508,15 +511,24 @@ if (searchWordEl) {
       const editBtn = document.createElement("button");
       editBtn.textContent = "수정";
       editBtn.onclick = async () => {
-        const newTerm = prompt("단어(term) 수정", w.term);
-        if (newTerm === null) return;
-        const newMeaning = prompt("뜻(meaning) 수정", w.meaning);
-        if (newMeaning === null) return;
+        const nt = prompt("단어(term) 수정", w.term);
+        if (nt === null) return;
+        const nm = prompt("뜻(meaning) 수정", w.meaning);
+        if (nm === null) return;
 
-        await updateDoc(
-          doc(db, "users", user.uid, "vocabBooks", currentBook.id, "words", w.id),
-          { term: newTerm.trim(), meaning: newMeaning.trim() }
-        );
+        if (currentGBook) {
+          // 🔥 그룹 수정
+          await updateDoc(
+            doc(db, "groups", currentGBook.gid, "vocabBooks", currentGBook.id, "words", w.id),
+            { term: nt.trim(), meaning: nm.trim() }
+          );
+        } else {
+          // 🔥 개인 수정
+          await updateDoc(
+            doc(db, "users", user.uid, "vocabBooks", currentBook.id, "words", w.id),
+            { term: nt.trim(), meaning: nm.trim() }
+          );
+        }
       };
 
       const delBtn = document.createElement("button");
@@ -524,9 +536,17 @@ if (searchWordEl) {
       delBtn.onclick = async () => {
         if (!confirm("삭제할까요?")) return;
 
-        await deleteDoc(
-          doc(db, "users", user.uid, "vocabBooks", currentBook.id, "words", w.id)
-        );
+        if (currentGBook) {
+          // 🔥 그룹 삭제
+          await deleteDoc(
+            doc(db, "groups", currentGBook.gid, "vocabBooks", currentGBook.id, "words", w.id)
+          );
+        } else {
+          // 🔥 개인 삭제
+          await deleteDoc(
+            doc(db, "users", user.uid, "vocabBooks", currentBook.id, "words", w.id)
+          );
+        }
       };
 
       const btnWrap = document.createElement("div");
@@ -540,7 +560,6 @@ if (searchWordEl) {
     });
   });
 }
-
 
 addWordBtn.onclick = async () => {
   const user = auth.currentUser;
