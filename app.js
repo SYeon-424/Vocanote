@@ -484,29 +484,63 @@ function startWordsLive() {
   });
 }
 
-// 🔍 검색 기능
 if (searchWordEl) {
   searchWordEl.addEventListener("input", () => {
     const q = normalize(searchWordEl.value);
     filteredListEl.innerHTML = "";
 
-    if (!q) {
-      filteredListEl.innerHTML = "";
-      return;
-    }
+    if (!q) return;
 
     const results = wordsCache.filter(w =>
       normalize(w.term).includes(q) ||
       normalize(w.meaning).includes(q)
     );
 
+    const user = auth.currentUser;
+    if (!user || !currentBook) return;
+
     results.forEach(w => {
       const li = document.createElement("li");
-      li.textContent = `${w.term} — ${w.meaning}`;
+
+      const label = document.createElement("span");
+      label.textContent = `${w.term} — ${w.meaning}`;
+
+      const editBtn = document.createElement("button");
+      editBtn.textContent = "수정";
+      editBtn.onclick = async () => {
+        const newTerm = prompt("단어(term) 수정", w.term);
+        if (newTerm === null) return;
+        const newMeaning = prompt("뜻(meaning) 수정", w.meaning);
+        if (newMeaning === null) return;
+
+        await updateDoc(
+          doc(db, "users", user.uid, "vocabBooks", currentBook.id, "words", w.id),
+          { term: newTerm.trim(), meaning: newMeaning.trim() }
+        );
+      };
+
+      const delBtn = document.createElement("button");
+      delBtn.textContent = "삭제";
+      delBtn.onclick = async () => {
+        if (!confirm("삭제할까요?")) return;
+
+        await deleteDoc(
+          doc(db, "users", user.uid, "vocabBooks", currentBook.id, "words", w.id)
+        );
+      };
+
+      const btnWrap = document.createElement("div");
+      btnWrap.className = "btn-wrap";
+      btnWrap.appendChild(editBtn);
+      btnWrap.appendChild(delBtn);
+
+      li.appendChild(label);
+      li.appendChild(btnWrap);
       filteredListEl.appendChild(li);
     });
   });
 }
+
 
 addWordBtn.onclick = async () => {
   const user = auth.currentUser;
