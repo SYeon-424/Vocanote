@@ -13,16 +13,12 @@ import {
   getDocs, writeBatch, where, runTransaction
 } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore.js";
 
-import {
-  getStorage, ref as sRef, uploadBytes, getDownloadURL
-} from "https://www.gstatic.com/firebasejs/10.13.2/firebase-storage.js";
 
 console.log("app.js v34");
 
 // ===== Firebase handles =====
 const auth = window.firebaseAuth;
 const db   = window.firebaseDB;
-const storage = getStorage(window.firebaseApp);
 
 // ===================== DOM =====================
 const authSection = document.getElementById("auth-section");
@@ -266,9 +262,9 @@ onAuthStateChanged(auth, async (user) => {
       if (profileEmailEl) profileEmailEl.textContent = (u.email || user.email || "email");
 
       // 프로필 이미지
-      const imgUrlRaw = (u.profileImg || user.photoURL || u.profileImgBase64 || "") || "";
+      const imgUrlRaw = (u.profileImgBase64 || user.photoURL || "") || "";
       const ver = u.profileImgUpdatedAt || 0;
-      const imgUrlForImgTag = (imgUrlRaw && ver) ? `${imgUrlRaw}?t=${ver}` : imgUrlRaw;
+      const imgUrlForImgTag = imgUrlRaw;
       if (avatarImgEl) avatarImgEl.src = imgUrlForImgTag;
 
       // 레벨/포인트
@@ -294,19 +290,43 @@ onAuthStateChanged(auth, async (user) => {
       saveAvatarBtn.onclick = async () => {
         if (!avatarFileEl.files || avatarFileEl.files.length === 0) return alert("이미지 파일을 선택해주세요.");
         const file = avatarFileEl.files[0];
+        const user = auth.currentUser;
+        if (!user) return alert("로그인이 필요합니다.");
+        
+        // 파일 크기 체크 (500KB 권장)
+        if (file.size > 500 * 1024) {
+          return alert("이미지 크기는 500KB 이하로 해주세요.");
+        }
+        
         try {
-          const path = `users/${user.uid}/profile/${Date.now()}_${file.name}`;
-          const fileRef = sRef(storage, path);
-          await uploadBytes(fileRef, file);
-          const url = await getDownloadURL(fileRef);
-
+          // 파일을 Base64로 변환
+          const base64 = await new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(reader.result);
+            reader.onerror = reject;
+            reader.readAsDataURL(file);
+          });
+    
           const updatedAt = Date.now();
-          await setDoc(doc(db, "users", user.uid), { profileImg: url, profileImgUpdatedAt: updatedAt }, { merge: true });
-          try { await updateProfile(user, { photoURL: url }); await user.reload(); } catch {}
-
-          try { await syncMyMemberFields({ photoURL: url }); } catch {}
-          if (avatarImgEl) avatarImgEl.src = `${url}?t=${updatedAt}`;
+          
+          // Firestore에 Base64 저장
+          await setDoc(doc(db, "users", user.uid), { 
+            profileImgBase64: base64,
+            profileImgUpdatedAt: updatedAt 
+          }, { merge: true });
+    
+          try { 
+            await updateProfile(user, { photoURL: base64 }); 
+            await user.reload(); 
+          } catch {}
+    
+          try { 
+            await syncMyMemberFields({ photoURL: base64 }); 
+          } catch {}
+          
+          if (avatarImgEl) avatarImgEl.src = base64;
           alert("프로필 이미지가 저장되었습니다.");
+          
         } catch (e) {
           console.error(e);
           alert("이미지 업로드 실패: " + (e?.message || e));
