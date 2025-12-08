@@ -491,9 +491,7 @@ if (searchWordEl) {
 
     if (!q) return;
 
-    // 🔥 지금 어떤 모드인지에 따라 검색 대상이 달라진다.
     const list = currentGBook ? gWordsCache : wordsCache;
-
     const results = list.filter(w =>
       normalize(w.term).includes(q) ||
       normalize(w.meaning).includes(q)
@@ -504,55 +502,59 @@ if (searchWordEl) {
 
     results.forEach(w => {
       const li = document.createElement("li");
-
       const label = document.createElement("span");
       label.textContent = `${w.term} — ${w.meaning}`;
 
-      const editBtn = document.createElement("button");
-      editBtn.textContent = "수정";
-      editBtn.onclick = async () => {
-        const nt = prompt("단어(term) 수정", w.term);
-        if (nt === null) return;
-        const nm = prompt("뜻(meaning) 수정", w.meaning);
-        if (nm === null) return;
-
-        if (currentGBook) {
-          // 🔥 그룹 수정
-          await updateDoc(
-            doc(db, "groups", currentGBook.gid, "vocabBooks", currentGBook.id, "words", w.id),
-            { term: nt.trim(), meaning: nm.trim() }
-          );
-        } else {
-          // 🔥 개인 수정
-          await updateDoc(
-            doc(db, "users", user.uid, "vocabBooks", currentBook.id, "words", w.id),
-            { term: nt.trim(), meaning: nm.trim() }
-          );
-        }
-      };
-
-      const delBtn = document.createElement("button");
-      delBtn.textContent = "삭제";
-      delBtn.onclick = async () => {
-        if (!confirm("삭제할까요?")) return;
-
-        if (currentGBook) {
-          // 🔥 그룹 삭제
-          await deleteDoc(
-            doc(db, "groups", currentGBook.gid, "vocabBooks", currentGBook.id, "words", w.id)
-          );
-        } else {
-          // 🔥 개인 삭제
-          await deleteDoc(
-            doc(db, "users", user.uid, "vocabBooks", currentBook.id, "words", w.id)
-          );
-        }
-      };
-
       const btnWrap = document.createElement("div");
       btnWrap.className = "btn-wrap";
-      btnWrap.appendChild(editBtn);
-      btnWrap.appendChild(delBtn);
+
+      // 🔥 권한 체크 추가
+      let canEdit = true;
+      if (currentGBook) {
+        canEdit = (user.uid === w.ownerId) || gIsOwner;
+      }
+
+      if (canEdit) {
+        const editBtn = document.createElement("button");
+        editBtn.textContent = "수정";
+        editBtn.onclick = async () => {
+          const nt = prompt("단어(term) 수정", w.term);
+          if (nt === null) return;
+          const nm = prompt("뜻(meaning) 수정", w.meaning);
+          if (nm === null) return;
+
+          if (currentGBook) {
+            await updateDoc(
+              doc(db, "groups", currentGBook.gid, "vocabBooks", currentGBook.id, "words", w.id),
+              { term: nt.trim(), meaning: nm.trim() }
+            );
+          } else {
+            await updateDoc(
+              doc(db, "users", user.uid, "vocabBooks", currentBook.id, "words", w.id),
+              { term: nt.trim(), meaning: nm.trim() }
+            );
+          }
+        };
+
+        const delBtn = document.createElement("button");
+        delBtn.textContent = "삭제";
+        delBtn.onclick = async () => {
+          if (!confirm("삭제할까요?")) return;
+
+          if (currentGBook) {
+            await deleteDoc(
+              doc(db, "groups", currentGBook.gid, "vocabBooks", currentGBook.id, "words", w.id)
+            );
+          } else {
+            await deleteDoc(
+              doc(db, "users", user.uid, "vocabBooks", currentBook.id, "words", w.id)
+            );
+          }
+        };
+
+        btnWrap.appendChild(editBtn);
+        btnWrap.appendChild(delBtn);
+      }
 
       li.appendChild(label);
       li.appendChild(btnWrap);
