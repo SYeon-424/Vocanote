@@ -382,7 +382,7 @@ function startBooksLive(uid) {
       const label = document.createElement("span");
       label.textContent = data.name;
       label.style.cursor = "pointer";
-      label.onclick = () => openBook({ id: d.id, name: data.name });
+      label.style.pointerEvents = "none";
 
       const renameBtn = document.createElement("button");
       renameBtn.textContent = "Rename";
