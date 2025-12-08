@@ -1,4 +1,4 @@
-// app.js v34
+// app.js v35
 import {
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
@@ -14,7 +14,7 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore.js";
 
 
-console.log("app.js v34");
+console.log("app.js v35");
 
 // ===== Firebase handles =====
 const auth = window.firebaseAuth;
