@@ -1,4 +1,4 @@
-// app.js v35
+// app.js v36 - 최적화 버전
 import {
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
@@ -14,7 +14,7 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore.js";
 
 
-console.log("app.js v35");
+console.log("app.js v36 - 최적화");
 
 // ===== Firebase handles =====
 const auth = window.firebaseAuth;
@@ -116,7 +116,7 @@ const gWordMeaningEl = document.getElementById("gword-meaning");
 const gAddWordBtn = document.getElementById("gadd-word");
 const gWordListEl = document.getElementById("gword-list");
 
-// 테스트 DOM (그룹)
+// 테스트 DOM (그룹) - 🔥 힌트 버튼 추가
 const gTestModeSel   = document.getElementById("gtest-mode");
 const gStartTestBtn  = document.getElementById("gstart-test");
 const gTestStatusEl  = document.getElementById("gtest-status");
@@ -126,7 +126,7 @@ const gQuizFreeBox   = document.getElementById("gquiz-free");
 const gQuizAnswerEl  = document.getElementById("gquiz-answer");
 const gSubmitAnswerBtn = document.getElementById("gsubmit-answer");
 const gPassBtn       = document.getElementById("gpass-question");
-const gHintBtn       = document.getElementById("ghint-question");
+const gHintBtn       = document.getElementById("ghint-question"); // 🔥 이 요소가 HTML에 있어야 함
 const gQuizChoices   = document.getElementById("gquiz-choices");
 const gQuizFeedback  = document.getElementById("gquiz-feedback");
 const gEndTestBtn    = document.getElementById("gend-test");
@@ -265,7 +265,6 @@ onAuthStateChanged(auth, async (user) => {
 
       // 프로필 이미지
       const imgUrlRaw = (u.profileImgBase64 || user.photoURL || "") || "";
-      const ver = u.profileImgUpdatedAt || 0;
       const imgUrlForImgTag = imgUrlRaw;
       if (avatarImgEl) avatarImgEl.src = imgUrlForImgTag;
 
@@ -281,10 +280,12 @@ onAuthStateChanged(auth, async (user) => {
       // 사용자 문서 읽기 실패시 Auth 값으로 최소 표시
       if (profileNickEl)  profileNickEl.textContent = display || user.email || "닉네임";
       if (profileEmailEl) profileEmailEl.textContent = user.email || "email";
-      if (avatarImgEl && user.photoURL) avatarImgEl.src = user.photoURL; // fallback
+      if (avatarImgEl && user.photoURL) avatarImgEl.src = user.photoURL;
     }
 
     userDisplayEl && (userDisplayEl.textContent = display || user.email);
+    
+    // 🔥 최적화: 실시간 리스너 대신 한 번만 로드
     await loadBooksOnce(user.uid);
     await loadMyGroupsOnce(user.uid);
     
@@ -295,13 +296,11 @@ onAuthStateChanged(auth, async (user) => {
         const user = auth.currentUser;
         if (!user) return alert("로그인이 필요합니다.");
         
-        // 파일 크기 체크 (500KB 권장)
         if (file.size > 500 * 1024) {
           return alert("이미지 크기는 500KB 이하로 해주세요.");
         }
         
         try {
-          // 파일을 Base64로 변환
           const base64 = await new Promise((resolve, reject) => {
             const reader = new FileReader();
             reader.onload = () => resolve(reader.result);
@@ -311,7 +310,6 @@ onAuthStateChanged(auth, async (user) => {
     
           const updatedAt = Date.now();
           
-          // Firestore에 Base64 저장
           await setDoc(doc(db, "users", user.uid), { 
             profileImgBase64: base64,
             profileImgUpdatedAt: updatedAt 
@@ -384,70 +382,9 @@ createBookBtn.onclick = async () => {
   if (!name) return alert("단어장 이름을 입력해주세요.");
   await addDoc(collection(db, "users", user.uid, "vocabBooks"), { name, createdAt: Date.now() });
   bookNameEl.value = "";
+  // 🔥 추가 후 목록 새로고침
+  await loadBooksOnce(user.uid);
 };
-
-function startBooksLive(uid) {
-  if (unsubBooks) unsubBooks();
-  const qBooks = query(collection(db, "users", uid, "vocabBooks"), orderBy("createdAt", "desc"));
-  unsubBooks = onSnapshot(qBooks, async (snap) => {
-    bookListEl.innerHTML = "";
-    groupBooksCache = [];
-    myBooksCache = [];
-    importSourceSel.innerHTML = `<option value=""> 내 단어장을 선택하세요 </option>`;
-
-    snap.forEach((d) => {
-      const data = d.data();
-      myBooksCache.push({ id: d.id, name: data.name });
-
-      const li = document.createElement("li");
-
-      const label = document.createElement("span");
-      label.textContent = data.name;
-      label.style.cursor = "pointer";
-      label.style.pointerEvents = "none";
-
-      const renameBtn = document.createElement("button");
-      renameBtn.textContent = "Rename";
-      renameBtn.onclick = async (e) => {
-        e.stopPropagation();
-        const newName = prompt("새 단어장 이름", data.name);
-        if (newName === null) return;
-        const trimmed = newName.trim();
-        if (!trimmed) return alert("이름을 입력해주세요.");
-        await updateDoc(doc(db, "users", uid, "vocabBooks", d.id), { name: trimmed });
-      };
-
-      const delBtn = document.createElement("button");
-      delBtn.textContent = "삭제";
-      delBtn.onclick = async (e) => {
-        e.stopPropagation();
-        if (!confirm(`단어장 "${data.name}"을(를) 삭제할까요?\n (안의 단어들도 함께 삭제됩니다)`)) return;
-        const wSnap = await getDocs(collection(db, "users", uid, "vocabBooks", d.id, "words"));
-        const batch = writeBatch(db);
-        wSnap.forEach(ws => batch.delete(doc(db, "users", uid, "vocabBooks", d.id, "words", ws.id)));
-        if (!wSnap.empty) await batch.commit();
-        await deleteDoc(doc(db, "users", uid, "vocabBooks", d.id));
-      };
-
-      const btnWrap = document.createElement("div");
-      btnWrap.className = "btn-wrap";
-      btnWrap.appendChild(renameBtn);
-      btnWrap.appendChild(delBtn);
-
-      li.appendChild(label);
-      li.appendChild(btnWrap);
-      li.onclick = () => openBook({ id: d.id, name: data.name });
-      bookListEl.appendChild(li);
-    });
-
-    myBooksCache.forEach(b => {
-      const opt = document.createElement("option");
-      opt.value = b.id;
-      opt.textContent = b.name;
-      importSourceSel.appendChild(opt);
-    });
-  });
-}
 
 function openBook(book) {
   currentBook = book;
@@ -530,7 +467,6 @@ if (searchWordEl) {
       const btnWrap = document.createElement("div");
       btnWrap.className = "btn-wrap";
 
-      // 🔥 권한 체크 추가
       let canEdit = true;
       if (currentGBook) {
         canEdit = (user.uid === w.ownerId) || gIsOwner;
@@ -734,7 +670,6 @@ async function addExp(points){
   let { exp = 0, level = 1 } = snap.data();
   exp += (points|0);
 
-  // 레벨업 규칙
   const need = level * 400;
   if (exp >= need) {
     level += 1;
@@ -776,58 +711,6 @@ function escapeHtml(s){ return (s??"").toString().replaceAll("&","&amp;").replac
 // ===================== 그룹 =====================
 function makeInviteCode(len=6){ const chars="ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; let s=""; for(let i=0;i<len;i++) s+=chars[Math.floor(Math.random()*chars.length)]; return s; }
 
-function startMyGroupsLive(uid) {
-  if (unsubMyGroups) unsubMyGroups();
-  const qMy = query(collection(db, "users", uid, "groups"), orderBy("joinedAt", "desc"));
-  unsubMyGroups = onSnapshot(qMy, (snap) => {
-    myGroupListEl.innerHTML = "";
-    snap.forEach(d => {
-      const g = { id: d.id, ...d.data() }; 
-      const gid = g.groupId || g.id;
-
-      const li = document.createElement("li");
-
-      const label = document.createElement("span");
-      label.textContent = g.name;
-      label.style.cursor = "pointer";
-      label.onclick = () => openGroup({ id: gid, name: g.name, code: g.code });
-
-      const btnWrap = document.createElement("div");
-      btnWrap.className = "btn-wrap";
-
-      if (g.owner) {
-        const renameBtn = document.createElement("button");
-        renameBtn.textContent = "Rename";
-        renameBtn.onclick = async (e) => {
-          e.stopPropagation();
-          const newName = prompt("새 그룹 이름", g.name);
-          if (newName === null) return;
-          const trimmed = newName.trim();
-          if (!trimmed) return alert("이름을 입력해주세요.");
-          await renameGroup(gid, trimmed);
-        };
-
-        const delBtn = document.createElement("button");
-        delBtn.textContent = "삭제";
-        delBtn.onclick = async (e) => {
-          e.stopPropagation();
-          if (!confirm(`그룹 "${g.name}"을(를) 삭제할까요?\n(모든 멤버십이 해제되고 그룹이 제거됩니다)`)) return;
-          await deleteGroup(gid, uid);
-        };
-
-        btnWrap.appendChild(renameBtn);
-        btnWrap.appendChild(delBtn);
-      }
-
-      li.appendChild(label);
-      li.appendChild(btnWrap);
-      li.onclick = () => openGroup({ id: gid, name: g.name, code: g.code });
-      myGroupListEl.appendChild(li);
-    });
-  });
-}
-
-// 그룹 만들기 / 가입
 createGroupBtn.onclick = async () => {
   const user = auth.currentUser;
   const name = (groupNameEl.value || "").trim();
@@ -857,6 +740,10 @@ createGroupBtn.onclick = async () => {
   });
 
   groupNameEl.value = "";
+  
+  // 🔥 생성 후 목록 새로고침
+  await loadMyGroupsOnce(user.uid);
+  
   openGroup({ id: groupRef.id, name, code });
 };
 
@@ -903,7 +790,6 @@ joinGroupBtn.onclick = async () => {
   openGroup({ id: gid, name: data.name, code: data.code });
 };
 
-// 그룹 열기/뒤로/탈퇴
 function openGroup(g) {
   currentGroup = g;
   currentGroupTitleEl.textContent = `${g.name}`;
@@ -917,7 +803,6 @@ function openGroup(g) {
   startDuelRequestListeners(g.id);
 }
 
-/* ===== 멤버 목록 ===== */
 function startMembersLive(gid) {
   if (unsubGroupMembers) unsubGroupMembers();
   const qMem = query(collection(db, "groups", gid, "members"), orderBy("joinedAt", "asc"));
@@ -1048,6 +933,7 @@ backToGroupsBtn.onclick = () => {
   currentGroup = null; groupMembersEl.innerHTML = ""; gBookListEl.innerHTML="";
   hide(groupSection); show(appSection);
 };
+
 leaveGroupBtn.onclick = async () => {
   const user = auth.currentUser; if (!user || !currentGroup) return;
   if (!confirm("정말 탈퇴할까요?")) return;
@@ -1067,6 +953,7 @@ async function renameGroup(groupId, newName) {
   });
   await batch.commit();
 }
+
 async function deleteGroup(groupId) {
   const memSnap = await getDocs(collection(db, "groups", groupId, "members"));
   const batch = writeBatch(db);
@@ -1088,7 +975,6 @@ async function deleteGroup(groupId) {
   await deleteDoc(doc(db, "groups", groupId));
 }
 
-// ===================== 그룹 단어장 (내 단어장에서 가져오기) =====================
 function startGBooksLive(gid) {
   if (unsubGBooks) unsubGBooks();
   const qBooks = query(collection(db, "groups", gid, "vocabBooks"), orderBy("createdAt","desc"));
@@ -1223,6 +1109,7 @@ function openGBook(gid, b) {
     gTimerInput.addEventListener("input", syncTimer);
   }
 }
+
 backToGBooksBtn.onclick = () => {
   if (unsubGWords) unsubGWords();
   currentGBook = null; gWordsCache = []; gWordListEl.innerHTML = "";
@@ -1335,6 +1222,7 @@ gStartTestBtn && (gStartTestBtn.onclick = () => {
   gQuizOrder = shuffle(gWordsCache.map((_,i)=>i)); gQuizIdx=0;
   hide(gTestResultEl); show(gQuizArea); gQuizFeedback.textContent=""; gRenderQ(); gUpdateStatus();
 });
+
 gSubmitAnswerBtn && (gSubmitAnswerBtn.onclick = () => {
   if (!gTestRunning || gAnswered || gAwaiting) return;
   if (gTestMode !== "free_m2t") return;
@@ -1342,11 +1230,14 @@ gSubmitAnswerBtn && (gSubmitAnswerBtn.onclick = () => {
   const ok = normalize(gQuizAnswerEl.value) === normalize(w.term);
   gAnswered=true; gPushHistory(w, ok, gQuizAnswerEl.value); gShowFeedback(ok, gCorrectText(w)); playSound(ok?"correct":"wrong"); gScheduleNext();
 });
+
 gPassBtn && (gPassBtn.onclick = () => {
   if (!gTestRunning || gAwaiting) return;
   const w = gWordsCache[gQuizOrder[gQuizIdx]];
   gAnswered=true; gPushHistory(w,false,"(Pass)"); gShowFeedback(false, gCorrectText(w)); playSound("wrong"); gScheduleNext();
 });
+
+// 🔥 그룹 테스트 힌트 버튼 (정상 작동)
 gHintBtn && (gHintBtn.onclick = () => {
   if (!gTestRunning || gAnswered || gAwaiting) return;
   if (gTestMode !== "free_m2t") return;
@@ -1354,6 +1245,7 @@ gHintBtn && (gHintBtn.onclick = () => {
   const firstLetter = (w.term || "").charAt(0).toUpperCase();
   alert(`첫 글자 : "${firstLetter}"`);
 });
+
 gEndTestBtn && (gEndTestBtn.onclick = () => gFinish());
 
 function gResetTestUI(hideAll=false){
@@ -1365,56 +1257,136 @@ function gResetTestUI(hideAll=false){
   hide(gHintBtn);
   gTestStatusEl.textContent="";
 }
-function gUpdateStatus(){ const base=`진행: ${gQuizIdx+1}/${gQuizOrder.length}`; if (gTestRunning&&(gTestMode==="mcq_t2m"||gTestMode==="mcq_m2t")&&gMcqRemain>0&&!gAnswered) gTestStatusEl.textContent=`${base} | 남은 시간: ${gMcqRemain}s`; else gTestStatusEl.textContent=base; }
+
+function gUpdateStatus(){ 
+  const base=`진행: ${gQuizIdx+1}/${gQuizOrder.length}`; 
+  if (gTestRunning&&(gTestMode==="mcq_t2m"||gTestMode==="mcq_m2t")&&gMcqRemain>0&&!gAnswered) 
+    gTestStatusEl.textContent=`${base} | 남은 시간: ${gMcqRemain}s`; 
+  else 
+    gTestStatusEl.textContent=base; 
+}
+
 function gRenderQ(){
   gAnswered=false; gAwaiting=false; gQuizFeedback.textContent=""; gQuizChoices.innerHTML=""; gQuizAnswerEl.value="";
   const w = gWordsCache[gQuizOrder[gQuizIdx]];
+  
   if (gTestMode==="free_m2t"){ 
     gQuizQ.textContent= w.meaning; 
     show(gQuizFreeBox); hide(gQuizChoices); show(gSubmitAnswerBtn); 
-    show(gHintBtn);
+    show(gHintBtn); // 🔥 힌트 버튼 표시
     gUpdateStatus(); 
   }
   else if (gTestMode==="mcq_t2m"){ 
     gQuizQ.textContent= w.term; 
     hide(gQuizFreeBox); show(gQuizChoices); hide(gSubmitAnswerBtn); 
     hide(gHintBtn);
-    gRenderChoices(w,"meaning"); gStartMcqTimer(w); }
+    gRenderChoices(w,"meaning"); gStartMcqTimer(w); 
+  }
   else { 
     gQuizQ.textContent= w.meaning; 
     hide(gQuizFreeBox); show(gQuizChoices); hide(gSubmitAnswerBtn); 
     hide(gHintBtn);
-    gRenderChoices(w,"term"); gStartMcqTimer(w); }
+    gRenderChoices(w,"term"); gStartMcqTimer(w); 
+  }
 }
-function gStartMcqTimer(w){ gMcqRemain = gMcqDuration; gUpdateStatus(); gMcqTick=setInterval(()=>{ if(!gTestRunning||gAnswered){clearInterval(gMcqTick); gMcqTick=null; return;} gMcqRemain-=1; gUpdateStatus(); if(gMcqRemain<=0){ clearInterval(gMcqTick); gMcqTick=null; if(!gAnswered && !gAwaiting){ gAnswered=true; gPushHistory(w,false,"(시간초과)"); gShowFeedback(false, gCorrectText(w)); playSound("timeout"); gScheduleNext(); } } },1000); }
+
+function gStartMcqTimer(w){ 
+  gMcqRemain = gMcqDuration; 
+  gUpdateStatus(); 
+  gMcqTick=setInterval(()=>{ 
+    if(!gTestRunning||gAnswered){clearInterval(gMcqTick); gMcqTick=null; return;} 
+    gMcqRemain-=1; gUpdateStatus(); 
+    if(gMcqRemain<=0){ 
+      clearInterval(gMcqTick); gMcqTick=null; 
+      if(!gAnswered && !gAwaiting){ 
+        gAnswered=true; 
+        gPushHistory(w,false,"(시간초과)"); 
+        gShowFeedback(false, gCorrectText(w)); 
+        playSound("timeout"); 
+        gScheduleNext(); 
+      } 
+    } 
+  },1000); 
+}
+
 function gRenderChoices(correct, field){
   const pool = shuffle(gWordsCache.filter(x=>x.id!==correct.id)).slice(0,2);
   const options = shuffle([correct, ...pool]);
-  options.forEach((opt)=>{ const b=document.createElement("button"); b.textContent=(field==="term"?opt.term:opt.meaning);
-    b.onclick=()=>{ if(gAnswered||gAwaiting) return; const ok=opt.id===correct.id; gAnswered=true; gPushHistory(correct, ok, b.textContent); gShowFeedback(ok, gCorrectText(correct)); playSound(ok?"correct":"wrong"); gScheduleNext(); };
+  options.forEach((opt)=>{ 
+    const b=document.createElement("button"); 
+    b.textContent=(field==="term"?opt.term:opt.meaning);
+    b.onclick=()=>{ 
+      if(gAnswered||gAwaiting) return; 
+      const ok=opt.id===correct.id; 
+      gAnswered=true; 
+      gPushHistory(correct, ok, b.textContent); 
+      gShowFeedback(ok, gCorrectText(correct)); 
+      playSound(ok?"correct":"wrong"); 
+      gScheduleNext(); 
+    };
     gQuizChoices.appendChild(b);
   });
 }
-function gShowFeedback(ok, correctText){ gQuizFeedback.textContent = ok ? "✅ 정답!" : `❌ 오답. 정답: ${correctText}`; }
-function gCorrectText(w){ return (gTestMode==="mcq_t2m")? w.meaning : w.term; }
-function gScheduleNext(){ gAwaiting=true; if(gAdvanceTimer) clearTimeout(gAdvanceTimer); gAdvanceTimer=setTimeout(()=>{ gAdvanceTimer=null; gNext(); },2000); }
-function gNext(){ if (!gTestRunning) return; if (gQuizIdx<gQuizOrder.length-1){ gQuizIdx++; gRenderQ(); gUpdateStatus(); } else gFinish(); }
+
+function gShowFeedback(ok, correctText){ 
+  gQuizFeedback.textContent = ok ? "✅ 정답!" : `❌ 오답. 정답: ${correctText}`; 
+}
+
+function gCorrectText(w){ 
+  return (gTestMode==="mcq_t2m")? w.meaning : w.term; 
+}
+
+function gScheduleNext(){ 
+  gAwaiting=true; 
+  if(gAdvanceTimer) clearTimeout(gAdvanceTimer); 
+  gAdvanceTimer=setTimeout(()=>{ gAdvanceTimer=null; gNext(); },2000); 
+}
+
+function gNext(){ 
+  if (!gTestRunning) return; 
+  if (gQuizIdx<gQuizOrder.length-1){ 
+    gQuizIdx++; 
+    gRenderQ(); 
+    gUpdateStatus(); 
+  } else gFinish(); 
+}
+
 function gPushHistory(wordObj, ok, ans){
   if (ok) { addExp(10).catch(()=>{}); }
-  gHistory.push({ term:wordObj.term, meaning:wordObj.meaning, correct:!!ok, userAnswer:(ans??"").toString() });
+  gHistory.push({ 
+    term:wordObj.term, 
+    meaning:wordObj.meaning, 
+    correct:!!ok, 
+    userAnswer:(ans??"").toString() 
+  });
 }
+
 function gFinish(){
-  gTestRunning=false; if(gAdvanceTimer){clearTimeout(gAdvanceTimer); gAdvanceTimer=null;} if(gMcqTick){clearInterval(gMcqTick); gMcqTick=null;}
+  gTestRunning=false; 
+  if(gAdvanceTimer){clearTimeout(gAdvanceTimer); gAdvanceTimer=null;} 
+  if(gMcqTick){clearInterval(gMcqTick); gMcqTick=null;}
   hide(gQuizArea);
+  
   const total=gQuizOrder.length||0, correctCount=gHistory.filter(h=>h.correct).length;
   const header=`<strong>결과:</strong> ${correctCount} / ${total}`;
-  const items = gHistory.map((h,i)=>{ const okColor=h.correct?"var(--ok)":"var(--bad)"; const line1=`<div><b>${i+1}.</b> ${escapeHtml(h.term)} — <em>${escapeHtml(h.meaning)}</em></div>`; const userAns=h.userAnswer?` / 내가 쓴 답: "${escapeHtml(h.userAnswer)}"`:""; const line2=`<div>결과: <span style="color:${okColor}; font-weight:600;">${h.correct?"정답":"오답"}</span>${userAns}</div>`; return `<li style="border-left:4px solid ${okColor}; padding-left:10px; margin-bottom:8px;">${line1}${line2}</li>`; }).join("");
+  const items = gHistory.map((h,i)=>{ 
+    const okColor=h.correct?"var(--ok)":"var(--bad)"; 
+    const line1=`<div><b>${i+1}.</b> ${escapeHtml(h.term)} — <em>${escapeHtml(h.meaning)}</em></div>`; 
+    const userAns=h.userAnswer?` / 내가 쓴 답: "${escapeHtml(h.userAnswer)}"`:""; 
+    const line2=`<div>결과: <span style="color:${okColor}; font-weight:600;">${h.correct?"정답":"오답"}</span>${userAns}</div>`; 
+    return `<li style="border-left:4px solid ${okColor}; padding-left:10px; margin-bottom:8px;">${line1}${line2}</li>`; 
+  }).join("");
+  
   gTestResultEl.innerHTML=`<div style="margin-bottom:8px;">${header}</div><ul style="padding-left:16px; list-style:none; margin:0;">${items}</ul>`;
   show(gTestResultEl);
 }
 
 // ===================== 기타 유틸 =====================
-function chunk(arr,n){ const out=[]; for(let i=0;i<arr.length;i+=n) out.push(arr.slice(i,i+n)); return out; }
+function chunk(arr,n){ 
+  const out=[]; 
+  for(let i=0;i<arr.length;i+=n) out.push(arr.slice(i,i+n)); 
+  return out; 
+}
 
 // ===================== (배팅 전용) 포인트 가감 =====================
 async function adjustUserExp(uid, delta){
@@ -1455,6 +1427,7 @@ async function requireAndHoldMyStake(stake){
     tx.update(meRef, { exp: cur - need });
   });
 }
+
 async function ensureDuelUI(gid, bookId){
   try {
     if (currentGBook && currentGBook.gid === gid && currentGBook.id === bookId) {
@@ -1524,7 +1497,9 @@ async function createStakeMatchWithMode({ gid, bookId, timer, rounds, stake, opp
   return midRef.id;
 }
 
-async function createStakeMatch(args){ return createStakeMatchWithMode({ ...args, mode:"mcq_t2m" }); }
+async function createStakeMatch(args){ 
+  return createStakeMatchWithMode({ ...args, mode:"mcq_t2m" }); 
+}
 
 function startDuelListener(matchPath, host = false) {
   const matchRef = doc(db, matchPath);
@@ -1703,7 +1678,7 @@ async function startDuelRound(roundNum = duel.idx) {
         b.onclick = () => {
           if (duel.roundLocked) return;
           const ok = opt.id === w.id;
-          if (ok) resolveWinner(auth.currentUser.uid); // 정답 → 라운드+1
+          if (ok) resolveWinner(auth.currentUser.uid);
         };
         ch.appendChild(b);
       });
@@ -1754,7 +1729,6 @@ async function resolveWinner(winnerUid) {
   }).catch(e => console.error(e));
 }
 
-
 async function advanceRound() {
   duel.roundLocked = true;
   const matchRef = doc(db, "groups", duel.gid, "matches", duel.mid);
@@ -1779,7 +1753,6 @@ async function advanceRound() {
     });
   }).catch(e => console.error(e));
 }
-
 
 async function settleStake(m){
   const me = auth.currentUser; if (!me) return;
@@ -1931,25 +1904,59 @@ function modeLabel(mode) {
   return "객관식 (단어→뜻)";
 }
 
+// 🔥 최적화: 한 번만 로드 (실시간 리스너 없음)
 async function loadBooksOnce(uid) {
   const qBooks = query(collection(db, "users", uid, "vocabBooks"), orderBy("createdAt", "desc"));
   const snap = await getDocs(qBooks);
 
   bookListEl.innerHTML = "";
   myBooksCache = [];
-  importSourceSel.innerHTML = `<option value=""> 내 단어장을 선택하세요 </option>`;
+  importSourceSel.innerHTML = `<option value="">내 단어장을 선택하세요</option>`;
 
   snap.forEach((d) => {
     const data = d.data();
     myBooksCache.push({ id: d.id, name: data.name });
 
     const li = document.createElement("li");
+
     const label = document.createElement("span");
     label.textContent = data.name;
     label.style.cursor = "pointer";
-    label.onclick = () => openBook({ id: d.id, name: data.name });
+    label.style.pointerEvents = "none";
+
+    const renameBtn = document.createElement("button");
+    renameBtn.textContent = "Rename";
+    renameBtn.onclick = async (e) => {
+      e.stopPropagation();
+      const newName = prompt("새 단어장 이름", data.name);
+      if (newName === null) return;
+      const trimmed = newName.trim();
+      if (!trimmed) return alert("이름을 입력해주세요.");
+      await updateDoc(doc(db, "users", uid, "vocabBooks", d.id), { name: trimmed });
+      await loadBooksOnce(uid); // 🔥 새로고침
+    };
+
+    const delBtn = document.createElement("button");
+    delBtn.textContent = "삭제";
+    delBtn.onclick = async (e) => {
+      e.stopPropagation();
+      if (!confirm(`단어장 "${data.name}"을(를) 삭제할까요?\n (안의 단어들도 함께 삭제됩니다)`)) return;
+      const wSnap = await getDocs(collection(db, "users", uid, "vocabBooks", d.id, "words"));
+      const batch = writeBatch(db);
+      wSnap.forEach(ws => batch.delete(doc(db, "users", uid, "vocabBooks", d.id, "words", ws.id)));
+      if (!wSnap.empty) await batch.commit();
+      await deleteDoc(doc(db, "users", uid, "vocabBooks", d.id));
+      await loadBooksOnce(uid); // 🔥 새로고침
+    };
+
+    const btnWrap = document.createElement("div");
+    btnWrap.className = "btn-wrap";
+    btnWrap.appendChild(renameBtn);
+    btnWrap.appendChild(delBtn);
 
     li.appendChild(label);
+    li.appendChild(btnWrap);
+    li.onclick = () => openBook({ id: d.id, name: data.name });
     bookListEl.appendChild(li);
   });
 
@@ -1961,6 +1968,7 @@ async function loadBooksOnce(uid) {
   });
 }
 
+// 🔥 최적화: 한 번만 로드 (실시간 리스너 없음)
 async function loadMyGroupsOnce(uid) {
   const qMy = query(collection(db, "users", uid, "groups"), orderBy("joinedAt", "desc"));
   const snap = await getDocs(qMy);
@@ -1972,12 +1980,44 @@ async function loadMyGroupsOnce(uid) {
     const gid = g.groupId || g.id;
 
     const li = document.createElement("li");
+
     const label = document.createElement("span");
     label.textContent = g.name;
     label.style.cursor = "pointer";
     label.onclick = () => openGroup({ id: gid, name: g.name, code: g.code });
 
+    const btnWrap = document.createElement("div");
+    btnWrap.className = "btn-wrap";
+
+    if (g.owner) {
+      const renameBtn = document.createElement("button");
+      renameBtn.textContent = "Rename";
+      renameBtn.onclick = async (e) => {
+        e.stopPropagation();
+        const newName = prompt("새 그룹 이름", g.name);
+        if (newName === null) return;
+        const trimmed = newName.trim();
+        if (!trimmed) return alert("이름을 입력해주세요.");
+        await renameGroup(gid, trimmed);
+        await loadMyGroupsOnce(uid); // 🔥 새로고침
+      };
+
+      const delBtn = document.createElement("button");
+      delBtn.textContent = "삭제";
+      delBtn.onclick = async (e) => {
+        e.stopPropagation();
+        if (!confirm(`그룹 "${g.name}"을(를) 삭제할까요?\n(모든 멤버십이 해제되고 그룹이 제거됩니다)`)) return;
+        await deleteGroup(gid, uid);
+        await loadMyGroupsOnce(uid); // 🔥 새로고침
+      };
+
+      btnWrap.appendChild(renameBtn);
+      btnWrap.appendChild(delBtn);
+    }
+
     li.appendChild(label);
+    li.appendChild(btnWrap);
+    li.onclick = () => openGroup({ id: gid, name: g.name, code: g.code });
     myGroupListEl.appendChild(li);
   });
 }
