@@ -670,7 +670,7 @@ async function addExp(points){
   let { exp = 0, level = 1 } = snap.data();
   exp += (points|0);
 
-  const need = level * 400;
+  const need = level * 300;
   if (exp >= need) {
     level += 1;
     exp -= need;
@@ -827,7 +827,9 @@ function startMembersLive(gid) {
         12: "연구 1팀 매드 사이언티스트",
         13: "보안팀 늑대의 도넛상자",
         14: "■■■",
-        15: "아니도대체어디까지가려고이러세요"
+        15: "아니도대체어디까지가려고이러세요",
+        16: "멋진길은서",
+        17: "타코무누 moo..."
       };
 
       const li = document.createElement("li");
