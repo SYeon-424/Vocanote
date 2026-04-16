@@ -829,7 +829,10 @@ function startMembersLive(gid) {
         14: "■■■",
         15: "아니도대체어디까지가려고이러세요",
         16: "멋진길은서",
-        17: "타코무누 moo..."
+        17: "타코무누 moo...",
+        18: "けっせき",
+        19: "대단한 장구벌레"
+        20: "도동두동동동현"
       };
 
       const li = document.createElement("li");
